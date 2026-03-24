@@ -3,7 +3,9 @@ package com.readingtracker.models;
 import java.sql.*;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 
@@ -317,6 +319,79 @@ public class Database {
         return entries;
     }
     
+    public Map<String, Integer> getStatsByTypeAndPeriod(Integer month, Integer year) {
+        Map<String, Integer> stats = new HashMap<>();
+        StringBuilder sql = new StringBuilder("SELECT type, COUNT(*) as count FROM entries WHERE 1=1");
+        if (year != null) {
+            sql.append(" AND strftime('%Y', date) = ?");
+        }
+        if (month != null) {
+            sql.append(" AND CAST(strftime('%m', date) AS INTEGER) = ?");
+        }
+        sql.append(" GROUP BY type");
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql.toString())) {
+            int paramIndex = 1;
+            if (year != null) {
+                pstmt.setString(paramIndex++, String.valueOf(year));
+            }
+            if (month != null) {
+                pstmt.setInt(paramIndex++, month);
+            }
+            ResultSet rs = pstmt.executeQuery();
+            while (rs.next()) {
+                stats.put(rs.getString("type"), rs.getInt("count"));
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return stats;
+    }
+
+    public List<Entry> getEntriesByPeriod(Integer month, Integer year) {
+        List<Entry> entries = new ArrayList<>();
+        StringBuilder sql = new StringBuilder("SELECT * FROM entries WHERE 1=1");
+        if (year != null) {
+            sql.append(" AND strftime('%Y', date) = ?");
+        }
+        if (month != null) {
+            sql.append(" AND CAST(strftime('%m', date) AS INTEGER) = ?");
+        }
+        sql.append(" ORDER BY date DESC");
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql.toString())) {
+            int paramIndex = 1;
+            if (year != null) {
+                pstmt.setString(paramIndex++, String.valueOf(year));
+            }
+            if (month != null) {
+                pstmt.setInt(paramIndex++, month);
+            }
+            ResultSet rs = pstmt.executeQuery();
+            while (rs.next()) {
+                Entry entry = new Entry(
+                        rs.getString("title"),
+                        rs.getString("type"),
+                        rs.getString("description"),
+                        rs.getDate("date").toLocalDate(),
+                        rs.getString("cover_path"),
+                        rs.getObject("chapters") != null ? rs.getInt("chapters") : null,
+                        rs.getObject("season") != null ? rs.getInt("season") : null,
+                        rs.getObject("episode") != null ? rs.getInt("episode") : null
+                );
+                entry.setId(rs.getInt("id"));
+                entry.setVenue(rs.getString("venue"));
+                entry.setIsSingleVolume(rs.getObject("is_single_volume") != null ? rs.getBoolean("is_single_volume") : null);
+                entry.setComicSeriesNumber(rs.getObject("comic_series_number") != null ? rs.getInt("comic_series_number") : null);
+                entry.setComicIssueNumber(rs.getObject("comic_issue_number") != null ? rs.getInt("comic_issue_number") : null);
+                entries.add(entry);
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return entries;
+    }
+
     public static class SeriesInfo {
         public int season;
         public int episode;
