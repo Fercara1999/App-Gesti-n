@@ -35,6 +35,17 @@ public class Database {
                     "comic_issue_number INTEGER)";
             stmt.execute(sql);
             
+            // Migrar tipos antiguos con emojis/acentos a tipos nuevos sin ellos
+            try {
+                stmt.execute("UPDATE entries SET type = 'Libro' WHERE type LIKE '%Libro%' AND type != 'Libro'");
+                stmt.execute("UPDATE entries SET type = 'Serie' WHERE type LIKE '%Serie%' AND type != 'Serie'");
+                stmt.execute("UPDATE entries SET type = 'Pelicula' WHERE (type LIKE '%Pel_cula%' OR type LIKE '%Pelicula%') AND type != 'Pelicula'");
+                stmt.execute("UPDATE entries SET type = 'Teatro' WHERE type LIKE '%Teatro%' AND type != 'Teatro'");
+                stmt.execute("UPDATE entries SET type = 'Comic' WHERE (type LIKE '%C_mic%' OR type LIKE '%Comic%') AND type != 'Comic'");
+            } catch (SQLException e) {
+                // Ignorar errores de migracion
+            }
+
             // Agregar columnas si no existen (para bases de datos existentes)
             try {
                 stmt.execute("ALTER TABLE entries ADD COLUMN chapters INTEGER");
@@ -213,7 +224,13 @@ public class Database {
         String sql = "SELECT DISTINCT title FROM entries WHERE type LIKE ? ORDER BY date DESC";
         try (Connection conn = DriverManager.getConnection(DB_URL);
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            String typePattern = type.contains("Libro") ? "%Libro%" : type.contains("Serie") ? "%Serie%" : "%Película%";
+            String typePattern;
+            if (type.contains("Libro")) typePattern = "%Libro%";
+            else if (type.contains("Serie")) typePattern = "%Serie%";
+            else if (type.contains("Pelicula")) typePattern = "%Pelicula%";
+            else if (type.contains("Teatro")) typePattern = "%Teatro%";
+            else if (type.contains("Comic")) typePattern = "%Comic%";
+            else typePattern = "%" + type + "%";
             pstmt.setString(1, typePattern);
             ResultSet rs = pstmt.executeQuery();
             while (rs.next()) {
@@ -293,7 +310,7 @@ public class Database {
         try (Connection conn = DriverManager.getConnection(DB_URL);
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, "%" + searchTerm + "%");
-            pstmt.setString(2, type);
+            pstmt.setString(2, "%" + type + "%");
             ResultSet rs = pstmt.executeQuery();
             while (rs.next()) {
                 Entry entry = new Entry(
