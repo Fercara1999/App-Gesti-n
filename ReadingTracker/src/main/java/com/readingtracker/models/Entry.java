@@ -9,27 +9,26 @@ public class Entry {
     private String description;
     private LocalDate date;
     private String coverPath;
-    private Integer chapters;        // Para libros
-    private String author;           // Para libros
-    private Integer season;          // Para series
-    private Integer episode;         // Para series
-    private String venue;            // Para teatro
-    private Boolean isSingleVolume;  // Para cómic
-    private Integer comicVolume;     // Para cómic (número de tomo)
-    private Integer comicIssue;      // Para cómic (número de serie dentro del tomo)
-    private String director;         // Para películas
-    private Boolean seenInCinema;    // Para películas
+    private Integer chapters;
+    private String author;
+    private Integer season;
+    private Integer episode;
+    private String venue;
+    private Boolean isSingleVolume;
+    private Integer comicVolume;
+    private Integer comicIssue;
+    private String director;
+    private Boolean seenInCinema;
+    private Integer rating;          // 0-10, null = sin valorar
+    private Boolean finished;        // libro terminado / serie terminada / tomo terminado
+    private Boolean seasonFinished;  // fin de temporada (series)
+    private Boolean seriesFinished;  // serie terminada (series y cómics)
 
     public Entry(String title, String type, String description, LocalDate date, String coverPath,
                  Integer chapters, Integer season, Integer episode) {
-        this.title = title;
-        this.type = type;
-        this.description = description;
-        this.date = date;
-        this.coverPath = coverPath;
-        this.chapters = chapters;
-        this.season = season;
-        this.episode = episode;
+        this.title = title; this.type = type; this.description = description;
+        this.date = date; this.coverPath = coverPath;
+        this.chapters = chapters; this.season = season; this.episode = episode;
     }
 
     public int getId() { return id; }
@@ -55,13 +54,21 @@ public class Entry {
     public String getVenue() { return venue; }
     public void setVenue(String venue) { this.venue = venue; }
     public Boolean getIsSingleVolume() { return isSingleVolume; }
-    public void setIsSingleVolume(Boolean isSingleVolume) { this.isSingleVolume = isSingleVolume; }
+    public void setIsSingleVolume(Boolean v) { this.isSingleVolume = v; }
     public Integer getComicVolume() { return comicVolume; }
-    public void setComicVolume(Integer comicVolume) { this.comicVolume = comicVolume; }
+    public void setComicVolume(Integer v) { this.comicVolume = v; }
     public Integer getComicIssue() { return comicIssue; }
-    public void setComicIssue(Integer comicIssue) { this.comicIssue = comicIssue; }
+    public void setComicIssue(Integer v) { this.comicIssue = v; }
     public String getDirector() { return director; }
     public void setDirector(String director) { this.director = director; }
     public Boolean getSeenInCinema() { return seenInCinema; }
-    public void setSeenInCinema(Boolean seenInCinema) { this.seenInCinema = seenInCinema; }
+    public void setSeenInCinema(Boolean v) { this.seenInCinema = v; }
+    public Integer getRating() { return rating; }
+    public void setRating(Integer rating) { this.rating = rating; }
+    public Boolean getFinished() { return finished; }
+    public void setFinished(Boolean finished) { this.finished = finished; }
+    public Boolean getSeasonFinished() { return seasonFinished; }
+    public void setSeasonFinished(Boolean v) { this.seasonFinished = v; }
+    public Boolean getSeriesFinished() { return seriesFinished; }
+    public void setSeriesFinished(Boolean v) { this.seriesFinished = v; }
 }
