@@ -19,12 +19,12 @@ import java.util.stream.Collectors;
 
 public class StatsPanel {
 
-    // Colores de acento fijos
     private static final Color ACCENT  = Color.web(Theme.C_ACCENT);
     private static final Color ACCENT2 = Color.web(Theme.C_ACCENT2);
     private static final Color SUCCESS = Color.web(Theme.C_SUCCESS);
     private static final Color WARN    = Color.web(Theme.C_WARN);
     private static final Color PURPLE  = Color.web(Theme.C_PURPLE);
+    private static final Color CINEMA  = Color.web("#e74c3c"); // rojo cine
 
     private static final Color[] BAR_COLORS = {
         Color.web("#6c5ce7"), Color.web("#00b4cc"), Color.web("#27ae60"),
@@ -47,101 +47,92 @@ public class StatsPanel {
         VBox panel = new VBox(0);
         panel.setStyle("-fx-background-color:" + Theme.bg() + ";");
 
-        // Header
         HBox header = new HBox(16);
         header.setPadding(new Insets(18, 24, 14, 24));
         header.setAlignment(Pos.CENTER_LEFT);
         header.setStyle("-fx-background-color:" + Theme.surface() +
                 "; -fx-effect:dropshadow(gaussian," + Theme.shadow() + ",6,0,0,2);");
-
         Label title = new Label("📊  Estadísticas");
         title.setStyle("-fx-font-size:17; -fx-font-weight:bold; -fx-text-fill:" + Theme.C_ACCENT + ";");
-
         Region spacer = new Region(); HBox.setHgrow(spacer, Priority.ALWAYS);
-
-        Label pLabel = new Label("Periodo:");
-        pLabel.setStyle("-fx-text-fill:" + Theme.muted() + "; -fx-font-size:13;");
-
+        Label pLabel = new Label("Periodo:"); pLabel.setStyle("-fx-text-fill:" + Theme.muted() + "; -fx-font-size:13;");
         periodCombo = new ComboBox<>();
         periodCombo.getItems().addAll("Esta semana", "Este mes", "Este año", "Todo el tiempo");
-        periodCombo.setValue("Este mes");
-        periodCombo.setStyle(Theme.fieldStyle());
+        periodCombo.setValue("Este mes"); periodCombo.setStyle(Theme.fieldStyle());
         periodCombo.setOnAction(e -> refresh());
-
-        Button refreshBtn = new Button("🔄  Actualizar");
-        refreshBtn.setStyle(Theme.btnPrimary());
-        refreshBtn.setOnAction(e -> refresh());
-
+        Button refreshBtn = new Button("🔄  Actualizar"); refreshBtn.setStyle(Theme.btnPrimary()); refreshBtn.setOnAction(e -> refresh());
         header.getChildren().addAll(title, spacer, pLabel, periodCombo, refreshBtn);
         panel.getChildren().add(header);
 
         chartsArea = new VBox(20);
         chartsArea.setPadding(new Insets(20));
         chartsArea.setStyle("-fx-background-color:" + Theme.bg() + ";");
-
         ScrollPane scroll = new ScrollPane(chartsArea);
         scroll.setFitToWidth(true);
-        scroll.setStyle("-fx-background-color:" + Theme.bg() +
-                "; -fx-background:" + Theme.bg() + ";");
+        scroll.setStyle("-fx-background-color:" + Theme.bg() + "; -fx-background:" + Theme.bg() + ";");
         panel.getChildren().add(scroll);
         VBox.setVgrow(scroll, Priority.ALWAYS);
 
-        // Reestilizar automáticamente al cambiar tema
         Theme.darkMode.addListener((obs, old, nw) -> {
             panel.setStyle("-fx-background-color:" + Theme.bg() + ";");
-            header.setStyle("-fx-background-color:" + Theme.surface() +
-                    "; -fx-effect:dropshadow(gaussian," + Theme.shadow() + ",6,0,0,2);");
+            header.setStyle("-fx-background-color:" + Theme.surface() + "; -fx-effect:dropshadow(gaussian," + Theme.shadow() + ",6,0,0,2);");
             chartsArea.setStyle("-fx-background-color:" + Theme.bg() + ";");
-            scroll.setStyle("-fx-background-color:" + Theme.bg() +
-                    "; -fx-background:" + Theme.bg() + ";");
+            scroll.setStyle("-fx-background-color:" + Theme.bg() + "; -fx-background:" + Theme.bg() + ";");
             pLabel.setStyle("-fx-text-fill:" + Theme.muted() + "; -fx-font-size:13;");
-            periodCombo.setStyle(Theme.fieldStyle());
-            refreshBtn.setStyle(Theme.btnPrimary());
+            periodCombo.setStyle(Theme.fieldStyle()); refreshBtn.setStyle(Theme.btnPrimary());
         });
-
         return panel;
     }
 
     public void refresh() {
         chartsArea.getChildren().clear();
 
-        List<Entry> all      = db.getAllEntries();
-        LocalDate   now      = LocalDate.now();
-        LocalDate   from     = switch (periodCombo.getValue()) {
+        List<Entry> all  = db.getAllEntries();
+        LocalDate   now  = LocalDate.now();
+        LocalDate   from = switch (periodCombo.getValue()) {
             case "Esta semana" -> now.minusDays(now.getDayOfWeek().getValue() - 1);
             case "Este mes"    -> now.withDayOfMonth(1);
             case "Este año"    -> now.withDayOfYear(1);
             default            -> LocalDate.of(2000, 1, 1);
         };
-        List<Entry> filtered = all.stream()
-                .filter(e -> !e.getDate().isBefore(from)).collect(Collectors.toList());
+        List<Entry> filtered = all.stream().filter(e -> !e.getDate().isBefore(from)).collect(Collectors.toList());
 
-        // KPI cards
+        // ── Películas en cine (se calcula sobre TODO el histórico + periodo)
+        List<Entry> cinemaPeriod = filtered.stream()
+                .filter(e -> e.getType().contains("Pel") && Boolean.TRUE.equals(e.getSeenInCinema()))
+                .sorted(Comparator.comparing(Entry::getDate).reversed())
+                .collect(Collectors.toList());
+        List<Entry> cinemaAll = all.stream()
+                .filter(e -> e.getType().contains("Pel") && Boolean.TRUE.equals(e.getSeenInCinema()))
+                .sorted(Comparator.comparing(Entry::getDate).reversed())
+                .collect(Collectors.toList());
+
+        // ── KPIs ──────────────────────────────────────────────────────────
         long totalP   = filtered.size();
         long totalAll = all.size();
         long libros   = filtered.stream().filter(e -> e.getType().contains("Libro")).count();
         long avVideo  = filtered.stream().filter(e -> e.getType().contains("Serie") || e.getType().contains("Pel")).count();
         long comics   = filtered.stream().filter(e -> e.getType().contains("mic")).count();
+        long cineKpi  = cinemaPeriod.size();
 
-        HBox kpiRow = new HBox(14);
-        kpiRow.setAlignment(Pos.CENTER_LEFT);
+        HBox kpiRow = new HBox(14); kpiRow.setAlignment(Pos.CENTER_LEFT);
         kpiRow.getChildren().addAll(
             kpi("📚", String.valueOf(totalP),   "en periodo",      ACCENT),
             kpi("📋", String.valueOf(totalAll), "total histórico", ACCENT2),
             kpi("📖", String.valueOf(libros),   "libros",          SUCCESS),
             kpi("🎥", String.valueOf(avVideo),  "series/pelís",    WARN),
-            kpi("💭", String.valueOf(comics),   "cómics",          PURPLE)
+            kpi("💭", String.valueOf(comics),   "cómics",          PURPLE),
+            kpi("🎫", String.valueOf(cineKpi),  "en cine (periodo)", CINEMA)
         );
         chartsArea.getChildren().add(kpiRow);
 
         if (filtered.isEmpty()) {
             Label empty = new Label("📭 Sin registros en el periodo seleccionado");
             empty.setStyle("-fx-font-size:14; -fx-text-fill:" + Theme.muted() + ";");
-            chartsArea.getChildren().add(empty);
-            return;
+            chartsArea.getChildren().add(empty); return;
         }
 
-        // Conteos por tipo
+        // ── Conteos por tipo ──────────────────────────────────────────────
         String[] typeKeys   = {"📚 Libro", "🎬 Serie", "🎥 Película", "🎭 Teatro", "💭 Cómic"};
         String[] typeLabels = {"Libro", "Serie", "Película", "Teatro", "Cómic"};
         long[]   typeCounts = new long[typeKeys.length];
@@ -160,7 +151,7 @@ public class StatsPanel {
         row1.getChildren().addAll(barBox, pieBox);
         chartsArea.getChildren().add(row1);
 
-        // Actividad temporal
+        // ── Actividad temporal ────────────────────────────────────────────
         boolean byDay = !"Este año".equals(periodCombo.getValue()) && !"Todo el tiempo".equals(periodCombo.getValue());
         if (byDay) {
             Map<LocalDate, Long> dayMap = filtered.stream()
@@ -180,12 +171,100 @@ public class StatsPanel {
                     drawBarChart(labels, vals, new Color[]{ACCENT2}, 880, 200)));
         }
 
-        // Por día de la semana
+        // ── Por día de la semana ──────────────────────────────────────────
         String[] days = {"Lun","Mar","Mié","Jue","Vie","Sáb","Dom"};
         long[] dayCounts = new long[7];
         for (Entry e : filtered) dayCounts[e.getDate().getDayOfWeek().getValue() - 1]++;
         chartsArea.getChildren().add(chartCard("Actividad por día de la semana",
                 drawBarChart(days, dayCounts, BAR_COLORS, 880, 180)));
+
+        // ═══════════════════════════════════════════════════════════════════
+        // 🎫 SECCIÓN CINE
+        // ═══════════════════════════════════════════════════════════════════
+        addCinemaSection(cinemaAll, from);
+    }
+
+    // ── SECCIÓN CINE ────────────────────────────────────────────────────
+    private void addCinemaSection(List<Entry> cinemaAll, LocalDate from) {
+        // Separador
+        Label sep = new Label("🎫  Películas vistas en el cine");
+        sep.setStyle("-fx-font-size:16; -fx-font-weight:bold; -fx-text-fill:" + Theme.C_ACCENT + ";");
+        chartsArea.getChildren().add(sep);
+
+        if (cinemaAll.isEmpty()) {
+            Label none = new Label("📭 No hay películas registradas como vistas en el cine");
+            none.setStyle("-fx-font-size:13; -fx-text-fill:" + Theme.muted() + ";");
+            chartsArea.getChildren().add(none);
+            return;
+        }
+
+        // Gráfico de barras por mes (histórico)
+        Map<String, Long> cineMonth = new TreeMap<>(cinemaAll.stream().collect(
+                Collectors.groupingBy(
+                    e -> e.getDate().getYear() + "-" + String.format("%02d", e.getDate().getMonthValue()),
+                    Collectors.counting())));
+        if (!cineMonth.isEmpty()) {
+            String[] mLabels = cineMonth.keySet().toArray(new String[0]);
+            long[]   mVals   = cineMonth.values().stream().mapToLong(Long::longValue).toArray();
+            int chartW = Math.max(460, mLabels.length * 60);
+            chartsArea.getChildren().add(chartCard(
+                "Peliculas en cine por mes (histórico)",
+                drawBarChart(mLabels, mVals, new Color[]{CINEMA}, chartW, 200)));
+        }
+
+        // Lista de películas en cine
+        VBox listCard = new VBox(0);
+        listCard.setPadding(new Insets(14));
+        String cardBg  = Theme.isDark() ? "#313145" : "#ffffff";
+        String borderC = Theme.isDark() ? "#5050aa" : "#d0cce8";
+        listCard.setStyle("-fx-background-color:" + cardBg +
+                "; -fx-background-radius:12; -fx-border-color:" + borderC +
+                "; -fx-border-radius:12; -fx-border-width:1;" +
+                " -fx-effect:dropshadow(gaussian," + Theme.shadow() + ",10,0,0,3);");
+        Label listTitle = new Label("🎟️  Lista de películas en el cine (" + cinemaAll.size() + " en total)");
+        listTitle.setStyle("-fx-font-size:13; -fx-font-weight:bold; -fx-text-fill:" + Theme.C_ACCENT2 + "; -fx-padding:0 0 8 0;");
+        listCard.getChildren().add(listTitle);
+
+        for (int i = 0; i < cinemaAll.size(); i++) {
+            Entry e = cinemaAll.get(i);
+            HBox row = new HBox(12);
+            row.setAlignment(Pos.CENTER_LEFT);
+            row.setPadding(new Insets(6, 4, 6, 4));
+            // Alternancia de fondo
+            String rowBg = (i % 2 == 0)
+                ? (Theme.isDark() ? "#2a2a3e" : "#f8f6ff")
+                : (Theme.isDark() ? "#313145" : "#ffffff");
+            row.setStyle("-fx-background-color:" + rowBg + "; -fx-background-radius:6;");
+
+            Label num   = new Label(String.format("%2d.", i + 1));
+            num.setStyle("-fx-font-size:12; -fx-text-fill:" + Theme.muted() + "; -fx-min-width:28;");
+
+            Label titleL = new Label(e.getTitle());
+            titleL.setStyle("-fx-font-size:13; -fx-font-weight:bold; -fx-text-fill:" + Theme.text() + ";");
+            titleL.setMaxWidth(Double.MAX_VALUE);
+            HBox.setHgrow(titleL, Priority.ALWAYS);
+
+            // Director (si lo hay)
+            String dirStr = (e.getDirector() != null && !e.getDirector().isBlank())
+                ? "🎬 " + e.getDirector() : "";
+            Label dirL = new Label(dirStr);
+            dirL.setStyle("-fx-font-size:11; -fx-text-fill:" + Theme.muted() + ";");
+
+            // Valoración
+            String stars = "";
+            if (e.getRating() != null && e.getRating() > 0) {
+                stars = "★".repeat(Math.min(e.getRating(), 10)) + " " + e.getRating() + "/10";
+            }
+            Label ratingL = new Label(stars);
+            ratingL.setStyle("-fx-font-size:11; -fx-text-fill:#f5c518;");
+
+            Label dateL = new Label("📅 " + e.getDate());
+            dateL.setStyle("-fx-font-size:11; -fx-text-fill:" + Theme.muted() + ";");
+
+            row.getChildren().addAll(num, titleL, dirL, ratingL, dateL);
+            listCard.getChildren().add(row);
+        }
+        chartsArea.getChildren().add(listCard);
     }
 
     // ── CANVAS CHARTS ────────────────────────────────────────────────────
@@ -197,19 +276,12 @@ public class StatsPanel {
         Color gridC  = Theme.isDark() ? Color.web("#3b3b55") : Color.web("#e8e8f0");
         Color mutedC = Theme.isDark() ? Color.web("#9090aa") : Color.web("#8888aa");
         Color textC  = Theme.isDark() ? Color.web("#e0e0f0") : Color.web("#2a2a3e");
-
         g.setFill(cardBg); g.fillRect(0, 0, w, h);
-        int n = labels.length;
-        if (n == 0) return c;
-        long max = Arrays.stream(values).max().orElse(1);
-        if (max == 0) max = 1;
-
+        int n = labels.length; if (n == 0) return c;
+        long max = Arrays.stream(values).max().orElse(1); if (max == 0) max = 1;
         double padL = 36, padR = 10, padT = 14, padB = 34;
-        double chartW = w - padL - padR;
-        double chartH = h - padT - padB;
-        double barW   = Math.min(chartW / n * 0.6, 50);
-        double gap    = chartW / n;
-
+        double chartW = w - padL - padR, chartH = h - padT - padB;
+        double barW = Math.min(chartW / n * 0.6, 50), gap = chartW / n;
         g.setStroke(gridC); g.setLineWidth(1);
         for (int i = 0; i <= 4; i++) {
             double y = padT + chartH - (chartH * i / 4);
@@ -219,10 +291,8 @@ public class StatsPanel {
         }
         for (int i = 0; i < n; i++) {
             double barH = (values[i] * chartH) / max;
-            double x    = padL + gap * i + (gap - barW) / 2;
-            double y    = padT + chartH - barH;
-            g.setFill(colors[i % colors.length]);
-            g.fillRoundRect(x, y, barW, barH, 6, 6);
+            double x = padL + gap * i + (gap - barW) / 2, y = padT + chartH - barH;
+            g.setFill(colors[i % colors.length]); g.fillRoundRect(x, y, barW, barH, 6, 6);
             if (values[i] > 0) {
                 g.setFill(textC); g.setFont(Font.font("System", FontWeight.BOLD, 10));
                 g.setTextAlign(TextAlignment.CENTER);
@@ -243,17 +313,11 @@ public class StatsPanel {
         Color cardBg = Theme.isDark() ? Color.web("#313145") : Color.web("#ffffff");
         Color gridC  = Theme.isDark() ? Color.web("#3b3b55") : Color.web("#e8e8f0");
         Color mutedC = Theme.isDark() ? Color.web("#9090aa") : Color.web("#8888aa");
-
         g.setFill(cardBg); g.fillRect(0, 0, w, h);
-        int n = labels.length;
-        if (n < 2) return c;
-        long max = Arrays.stream(values).max().orElse(1);
-        if (max == 0) max = 1;
-
+        int n = labels.length; if (n < 2) return c;
+        long max = Arrays.stream(values).max().orElse(1); if (max == 0) max = 1;
         double padL = 36, padR = 10, padT = 14, padB = 30;
-        double chartW = w - padL - padR;
-        double chartH = h - padT - padB;
-
+        double chartW = w - padL - padR, chartH = h - padT - padB;
         g.setStroke(gridC); g.setLineWidth(1);
         for (int i = 0; i <= 4; i++) {
             double y = padT + chartH - chartH * i / 4;
@@ -261,16 +325,14 @@ public class StatsPanel {
             g.setFill(mutedC); g.setFont(Font.font(9)); g.setTextAlign(TextAlignment.RIGHT);
             g.fillText(String.valueOf(max * i / 4), padL - 4, y + 3);
         }
-        double[] px = new double[n + 2];
-        double[] py = new double[n + 2];
+        double[] px = new double[n + 2], py = new double[n + 2];
         for (int i = 0; i < n; i++) {
             px[i] = padL + chartW * i / (n - 1);
             py[i] = padT + chartH - (values[i] * chartH) / max;
         }
         px[n] = px[n-1]; py[n] = padT + chartH;
         px[n+1] = px[0]; py[n+1] = padT + chartH;
-        g.setFill(Color.web(Theme.C_ACCENT, 0.15));
-        g.fillPolygon(px, py, n + 2);
+        g.setFill(Color.web(Theme.C_ACCENT, 0.15)); g.fillPolygon(px, py, n + 2);
         g.setStroke(ACCENT); g.setLineWidth(2.5);
         g.beginPath(); g.moveTo(px[0], py[0]);
         for (int i = 1; i < n; i++) g.lineTo(px[i], py[i]);
@@ -278,10 +340,7 @@ public class StatsPanel {
         int step = Math.max(1, n / 15);
         for (int i = 0; i < n; i++) {
             if (values[i] > 0) { g.setFill(ACCENT); g.fillOval(px[i] - 3, py[i] - 3, 6, 6); }
-            if (i % step == 0) {
-                g.setFill(mutedC); g.setFont(Font.font(8)); g.setTextAlign(TextAlignment.CENTER);
-                g.fillText(labels[i], px[i], padT + chartH + 12);
-            }
+            if (i % step == 0) { g.setFill(mutedC); g.setFont(Font.font(8)); g.setTextAlign(TextAlignment.CENTER); g.fillText(labels[i], px[i], padT + chartH + 12); }
         }
         g.setStroke(mutedC); g.setLineWidth(1);
         g.strokeLine(padL, padT + chartH, w - padR, padT + chartH);
@@ -293,38 +352,27 @@ public class StatsPanel {
         GraphicsContext g = c.getGraphicsContext2D();
         Color cardBg = Theme.isDark() ? Color.web("#313145") : Color.web("#ffffff");
         Color mutedC = Theme.isDark() ? Color.web("#9090aa") : Color.web("#8888aa");
-
         g.setFill(cardBg); g.fillRect(0, 0, w, h);
-        long total = Arrays.stream(values).sum();
-        if (total == 0) return c;
-
-        double cx = w / 2, cy = h * 0.44;
-        double r  = Math.min(w, h) * 0.34;
+        long total = Arrays.stream(values).sum(); if (total == 0) return c;
+        double cx = w / 2, cy = h * 0.44, r = Math.min(w, h) * 0.34;
         double start = -Math.PI / 2;
         for (int i = 0; i < values.length; i++) {
             if (values[i] == 0) continue;
             double angle = 2 * Math.PI * values[i] / total;
             g.setFill(BAR_COLORS[i % BAR_COLORS.length]);
             g.fillArc(cx - r, cy - r, r * 2, r * 2,
-                    Math.toDegrees(-start), -Math.toDegrees(angle),
-                    javafx.scene.shape.ArcType.ROUND);
+                    Math.toDegrees(-start), -Math.toDegrees(angle), javafx.scene.shape.ArcType.ROUND);
             double mid = start + angle / 2;
-            double lx  = cx + (r * 0.66) * Math.cos(mid);
-            double ly  = cy + (r * 0.66) * Math.sin(mid);
+            double lx = cx + (r * 0.66) * Math.cos(mid), ly = cy + (r * 0.66) * Math.sin(mid);
             int pct = (int) Math.round(100.0 * values[i] / total);
-            if (pct >= 5) {
-                g.setFill(Color.WHITE); g.setFont(Font.font("System", FontWeight.BOLD, 10));
-                g.setTextAlign(TextAlignment.CENTER);
-                g.fillText(pct + "%", lx, ly + 4);
-            }
+            if (pct >= 5) { g.setFill(Color.WHITE); g.setFont(Font.font("System", FontWeight.BOLD, 10)); g.setTextAlign(TextAlignment.CENTER); g.fillText(pct + "%", lx, ly + 4); }
             start += angle;
         }
-        double ly = cy + r + 14; double lx = 10;
+        double ly = cy + r + 14, lx = 10;
         g.setFont(Font.font(9));
         for (int i = 0; i < labels.length; i++) {
             if (values[i] == 0) continue;
-            g.setFill(BAR_COLORS[i % BAR_COLORS.length]);
-            g.fillRoundRect(lx, ly, 10, 10, 3, 3);
+            g.setFill(BAR_COLORS[i % BAR_COLORS.length]); g.fillRoundRect(lx, ly, 10, 10, 3, 3);
             g.setFill(mutedC); g.setTextAlign(TextAlignment.LEFT);
             g.fillText(labels[i] + " (" + values[i] + ")", lx + 13, ly + 9);
             lx += 75;
@@ -336,27 +384,23 @@ public class StatsPanel {
     // ── HELPERS UI ───────────────────────────────────────────────────────
 
     private VBox chartCard(String title, javafx.scene.Node chart) {
-        VBox box = new VBox(8);
-        box.setPadding(new Insets(14));
+        VBox box = new VBox(8); box.setPadding(new Insets(14));
         String cardBg  = Theme.isDark() ? "#313145" : "#ffffff";
         String borderC = Theme.isDark() ? "#5050aa" : "#d0cce8";
         box.setStyle("-fx-background-color:" + cardBg +
                 "; -fx-background-radius:12; -fx-border-color:" + borderC +
                 "; -fx-border-radius:12; -fx-border-width:1;" +
                 " -fx-effect:dropshadow(gaussian," + Theme.shadow() + ",10,0,0,3);");
-        Label lbl = new Label(title);
-        lbl.setStyle("-fx-font-size:13; -fx-font-weight:bold; -fx-text-fill:" + Theme.C_ACCENT2 + ";");
+        Label lbl = new Label(title); lbl.setStyle("-fx-font-size:13; -fx-font-weight:bold; -fx-text-fill:" + Theme.C_ACCENT2 + ";");
         box.getChildren().addAll(lbl, chart);
         HBox.setHgrow(box, Priority.ALWAYS);
         return box;
     }
 
     private VBox kpi(String icon, String value, String label, Color color) {
-        VBox card = new VBox(4);
-        card.setAlignment(Pos.CENTER);
+        VBox card = new VBox(4); card.setAlignment(Pos.CENTER);
         card.setPadding(new Insets(14, 20, 14, 20));
-        String hex    = String.format("#%02x%02x%02x",
-                (int)(color.getRed()*255), (int)(color.getGreen()*255), (int)(color.getBlue()*255));
+        String hex    = String.format("#%02x%02x%02x", (int)(color.getRed()*255), (int)(color.getGreen()*255), (int)(color.getBlue()*255));
         String cardBg = Theme.isDark() ? "#313145" : "#ffffff";
         card.setStyle("-fx-background-color:" + cardBg +
                 "; -fx-background-radius:14; -fx-border-color:" + hex +
@@ -364,8 +408,7 @@ public class StatsPanel {
                 " -fx-effect:dropshadow(gaussian," + Theme.shadow() + ",8,0,0,2);");
         HBox.setHgrow(card, Priority.ALWAYS);
         Label ico = new Label(icon); ico.setFont(Font.font(26));
-        Label val = new Label(value);
-        val.setFont(Font.font("System", FontWeight.BOLD, 24)); val.setTextFill(color);
+        Label val = new Label(value); val.setFont(Font.font("System", FontWeight.BOLD, 24)); val.setTextFill(color);
         String mutedHex = Theme.isDark() ? "#9090aa" : "#7070aa";
         Label lbl = new Label(label); lbl.setStyle("-fx-text-fill:" + mutedHex + "; -fx-font-size:11;");
         card.getChildren().addAll(ico, val, lbl);
