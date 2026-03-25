@@ -19,33 +19,6 @@ import java.util.Optional;
 
 public class Main extends Application {
 
-    // ── Colores / estilos ─────────────────────────────────────────────────
-    static final String C_BG      = "#1e1e2e";
-    static final String C_SURFACE = "#2a2a3e";
-    static final String C_CARD    = "#313145";
-    static final String C_ACCENT  = "#7c6af7";
-    static final String C_ACCENT2 = "#56c8d8";
-    static final String C_TEXT    = "#e0e0f0";
-    static final String C_MUTED   = "#9090aa";
-    static final String C_SUCCESS = "#4caf6e";
-
-    static final String FIELD_STYLE =
-            "-fx-background-color:#3b3b55; -fx-text-fill:" + C_TEXT +
-            "; -fx-prompt-text-fill:#6060aa; -fx-border-color:#5050aa;" +
-            " -fx-border-radius:6; -fx-background-radius:6; -fx-padding:6 10;";
-    static final String LABEL_BOLD =
-            "-fx-font-weight:bold; -fx-text-fill:" + C_TEXT + "; -fx-font-size:12;";
-    static final String BTN_PRIMARY =
-            "-fx-background-color:" + C_ACCENT + "; -fx-text-fill:white;" +
-            " -fx-font-size:13; -fx-padding:9 28; -fx-background-radius:8; -fx-cursor:hand;";
-    static final String BTN_SECONDARY =
-            "-fx-background-color:#3b3b55; -fx-text-fill:" + C_TEXT +
-            "; -fx-font-size:12; -fx-padding:8 20; -fx-background-radius:8; -fx-cursor:hand;";
-    static final String CARD_STYLE =
-            "-fx-background-color:" + C_CARD + "; -fx-background-radius:12;" +
-            " -fx-effect:dropshadow(gaussian,rgba(0,0,0,0.4),10,0,0,3);";
-
-    // ── Estado ──────────────────────────────────────────────────────────────
     private Database db;
     private StatsPanel statsPanel;
     private VBox entriesContainer;
@@ -73,33 +46,57 @@ public class Main extends Application {
     private DatePicker searchDatePicker;
     private ComboBox<String> searchTypeCombo;
 
+    // raíces que necesitamos reestilizar al cambiar tema
+    private BorderPane root;
+    private HBox header;
+    private VBox inputPanel;
+    private VBox searchPanel;
+    private ScrollPane entriesScroll;
+    private TabPane tabPane;
+    private VBox dynamicCard;
+    private Button themeBtn;
+    private Tab statsTab;
+
     @Override
     public void start(Stage stage) {
         db = new Database();
         statsPanel = new StatsPanel(db);
 
-        BorderPane root = new BorderPane();
-        root.setStyle("-fx-background-color:" + C_BG + ";");
+        root = new BorderPane();
+        applyRootStyle();
 
         // Header
-        HBox header = new HBox();
-        header.setStyle("-fx-background-color:" + C_SURFACE + "; -fx-padding:15 25;" +
-                " -fx-effect:dropshadow(gaussian,rgba(0,0,0,0.3),6,0,0,2);");
+        header = new HBox();
+        header.setPadding(new Insets(14, 24, 14, 24));
         header.setAlignment(Pos.CENTER_LEFT);
+        applyHeaderStyle();
+
         Label appTitle = new Label("📚  Mi Registro Cultural");
-        appTitle.setStyle("-fx-font-size:22; -fx-font-weight:bold; -fx-text-fill:" + C_ACCENT + ";");
-        header.getChildren().add(appTitle);
+        appTitle.setStyle("-fx-font-size:22; -fx-font-weight:bold; -fx-text-fill:" + Theme.C_ACCENT + ";");
+
+        Region spacer = new Region(); HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        themeBtn = new Button("🌙 Modo oscuro");
+        themeBtn.setStyle("-fx-background-color:transparent; -fx-border-color:" + Theme.C_ACCENT +
+                "; -fx-border-radius:20; -fx-text-fill:" + Theme.C_ACCENT +
+                "; -fx-padding:6 16; -fx-cursor:hand; -fx-font-size:12;");
+        themeBtn.setOnAction(e -> toggleTheme());
+
+        header.getChildren().addAll(appTitle, spacer, themeBtn);
         root.setTop(header);
 
         // TabPane
-        TabPane tabPane = new TabPane();
-        tabPane.setStyle("-fx-background-color:" + C_BG + ";");
+        tabPane = new TabPane();
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        applyTabPaneStyle();
 
-        Tab registerTab = buildTab("📝  Registrar", createInputPanel());
-        Tab searchTab   = buildTab("🔍  Buscar",    createSearchPanel());
-        Tab statsTab    = buildTab("📊  Estadísticas", statsPanel.getRoot());
-        tabPane.getTabs().addAll(registerTab, searchTab, statsTab);
+        inputPanel  = createInputPanel();
+        searchPanel = createSearchPanel();
+
+        Tab registerTab = buildTab("📝  Registrar",    inputPanel);
+        Tab searchTab2  = buildTab("🔍  Buscar",        searchPanel);
+        statsTab        = buildTab("📊  Estadísticas", statsPanel.getRoot());
+        tabPane.getTabs().addAll(registerTab, searchTab2, statsTab);
         tabPane.getSelectionModel().selectedItemProperty().addListener((obs, old, nw) -> {
             if (nw == statsTab) statsPanel.refresh();
         });
@@ -107,14 +104,18 @@ public class Main extends Application {
         // Lista de entradas
         entriesContainer = new VBox(12);
         entriesContainer.setPadding(new Insets(16));
-        entriesContainer.setStyle("-fx-background-color:" + C_BG + ";");
-        ScrollPane scroll = new ScrollPane(entriesContainer);
-        scroll.setFitToWidth(true);
-        scroll.setStyle("-fx-background-color:" + C_BG + "; -fx-background:" + C_BG + ";");
+        applyEntriesContainerStyle();
 
-        VBox center = new VBox(tabPane, scroll);
-        VBox.setVgrow(scroll, Priority.ALWAYS);
+        entriesScroll = new ScrollPane(entriesContainer);
+        entriesScroll.setFitToWidth(true);
+        applyScrollStyle();
+
+        VBox center = new VBox(tabPane, entriesScroll);
+        VBox.setVgrow(entriesScroll, Priority.ALWAYS);
         root.setCenter(center);
+
+        // Listener de tema → reestilizar todo
+        Theme.darkMode.addListener((obs, old, nw) -> reapplyAllStyles());
 
         updateTitleSuggestions();
         updateDynamicFields();
@@ -124,6 +125,68 @@ public class Main extends Application {
         stage.setTitle("📚 Registro Cultural");
         stage.setScene(scene);
         stage.show();
+    }
+
+    // ══ TEMA ══════════════════════════════════════════════════════════════
+    private void toggleTheme() {
+        Theme.darkMode.set(!Theme.isDark());
+    }
+
+    private void reapplyAllStyles() {
+        applyRootStyle();
+        applyHeaderStyle();
+        applyTabPaneStyle();
+        applyEntriesContainerStyle();
+        applyScrollStyle();
+        if (inputPanel  != null) applyPanelStyle(inputPanel);
+        if (searchPanel != null) applyPanelStyle(searchPanel);
+        if (dynamicCard != null) applyDynamicCardStyle();
+        // Actualizar botón tema
+        themeBtn.setText(Theme.isDark() ? "☀️ Modo claro" : "🌙 Modo oscuro");
+        themeBtn.setStyle("-fx-background-color:transparent; -fx-border-color:" + Theme.C_ACCENT +
+                "; -fx-border-radius:20; -fx-text-fill:" + Theme.C_ACCENT +
+                "; -fx-padding:6 16; -fx-cursor:hand; -fx-font-size:12;");
+        // Recargar campos con nuevo estilo
+        refreshFieldStyles();
+        loadEntries();
+        statsPanel.refresh();
+    }
+
+    private void applyRootStyle()     { root.setStyle("-fx-background-color:" + Theme.bg() + ";"); }
+    private void applyHeaderStyle()   {
+        header.setStyle("-fx-background-color:" + Theme.surface() +
+                "; -fx-effect:dropshadow(gaussian," + Theme.shadow() + ",6,0,0,2);");
+    }
+    private void applyTabPaneStyle()  { tabPane.setStyle("-fx-background-color:" + Theme.bg() + ";"); }
+    private void applyScrollStyle()   {
+        entriesScroll.setStyle("-fx-background-color:" + Theme.bg() +
+                "; -fx-background:" + Theme.bg() + ";");
+    }
+    private void applyEntriesContainerStyle() {
+        entriesContainer.setStyle("-fx-background-color:" + Theme.bg() + ";");
+    }
+    private void applyPanelStyle(VBox panel) {
+        panel.setStyle("-fx-background-color:" + Theme.surface() + ";");
+    }
+    private void applyDynamicCardStyle() {
+        if (dynamicCard != null)
+            dynamicCard.setStyle("-fx-background-color:" + Theme.card() +
+                    "; -fx-background-radius:10; -fx-padding:12;" +
+                    " -fx-border-color:" + Theme.border() + "; -fx-border-radius:10;");
+    }
+
+    private void refreshFieldStyles() {
+        // Reestilizar campos del panel de registro
+        String fs = Theme.fieldStyle();
+        if (titleField   != null) titleField.setStyle(fs);
+        if (typeCombo    != null) typeCombo.setStyle(fs);
+        if (datePicker   != null) datePicker.setStyle(fs);
+        if (descriptionArea != null) descriptionArea.setStyle(fs);
+        if (searchTitleField   != null) searchTitleField.setStyle(fs);
+        if (searchDatePicker   != null) searchDatePicker.setStyle(fs);
+        if (searchTypeCombo    != null) searchTypeCombo.setStyle(fs);
+        // Reconstruir campos dinámicos
+        updateDynamicFields();
     }
 
     private Tab buildTab(String text, javafx.scene.Node content) {
@@ -136,10 +199,10 @@ public class Main extends Application {
     private VBox createInputPanel() {
         VBox panel = new VBox(14);
         panel.setPadding(new Insets(22));
-        panel.setStyle("-fx-background-color:" + C_SURFACE + ";");
+        panel.setStyle("-fx-background-color:" + Theme.surface() + ";");
 
         Label heading = new Label("📝 Registrar nueva entrada");
-        heading.setStyle("-fx-font-size:17; -fx-font-weight:bold; -fx-text-fill:" + C_ACCENT + ";");
+        heading.setStyle("-fx-font-size:17; -fx-font-weight:bold; -fx-text-fill:" + Theme.C_ACCENT + ";");
         panel.getChildren().add(heading);
 
         HBox row1 = new HBox(15);
@@ -148,7 +211,7 @@ public class Main extends Application {
         titleField = new ComboBox<>();
         titleField.setEditable(true);
         titleField.setPrefWidth(320);
-        titleField.setStyle(FIELD_STYLE);
+        titleField.setStyle(Theme.fieldStyle());
         titleTextField = titleField.getEditor();
         titleTextField.setPromptText("Ej: El Quijote");
         titleTextField.textProperty().addListener((o, ov, nv) -> {
@@ -164,7 +227,7 @@ public class Main extends Application {
         typeCombo.getItems().addAll("📚 Libro", "🎬 Serie", "🎥 Película", "🎭 Teatro", "💭 Cómic");
         typeCombo.setValue("📚 Libro");
         typeCombo.setPrefWidth(160);
-        typeCombo.setStyle(FIELD_STYLE);
+        typeCombo.setStyle(Theme.fieldStyle());
         typeCombo.setOnAction(e -> { updateTitleSuggestions(); updateDynamicFields(); });
         typeBox.getChildren().add(typeCombo);
 
@@ -172,17 +235,16 @@ public class Main extends Application {
         dateBox.getChildren().add(styledLabel("Fecha:"));
         datePicker = new DatePicker(LocalDate.now());
         datePicker.setPrefWidth(160);
-        datePicker.setStyle(FIELD_STYLE);
+        datePicker.setStyle(Theme.fieldStyle());
         dateBox.getChildren().add(datePicker);
 
         row1.getChildren().addAll(titleBox, typeBox, dateBox);
         panel.getChildren().add(row1);
 
-        dynamicFieldsBox = new VBox(10);
-        dynamicFieldsBox.setPadding(new Insets(10));
-        dynamicFieldsBox.setStyle("-fx-background-color:" + C_CARD +
-                "; -fx-background-radius:10; -fx-padding:12;");
-        panel.getChildren().add(dynamicFieldsBox);
+        dynamicCard = new VBox(10);
+        dynamicFieldsBox = dynamicCard;
+        applyDynamicCardStyle();
+        panel.getChildren().add(dynamicCard);
 
         VBox descBox = new VBox(5);
         descBox.getChildren().add(styledLabel("Descripción / Notas:"));
@@ -190,7 +252,7 @@ public class Main extends Application {
         descriptionArea.setPromptText("¿Qué te pareció?");
         descriptionArea.setWrapText(true);
         descriptionArea.setPrefRowCount(3);
-        descriptionArea.setStyle(FIELD_STYLE);
+        descriptionArea.setStyle(Theme.fieldStyle());
         descBox.getChildren().add(descriptionArea);
         panel.getChildren().add(descBox);
 
@@ -200,14 +262,18 @@ public class Main extends Application {
         coverBox.getChildren().add(styledLabel("Portada (arrastra):"));
         coverPreview = new ImageView();
         coverPreview.setFitWidth(90); coverPreview.setFitHeight(130);
-        coverPreview.setStyle("-fx-border-color:" + C_ACCENT +
+        coverPreview.setStyle("-fx-border-color:" + Theme.C_ACCENT +
                 "; -fx-border-width:2; -fx-border-style:dashed; -fx-border-radius:6;");
         setupDragAndDrop();
         coverBox.getChildren().add(coverPreview);
         VBox btnBox = new VBox(10);
         btnBox.setAlignment(Pos.CENTER);
-        Button btnSave  = new Button("✅  Guardar entrada"); btnSave.setStyle(BTN_PRIMARY); btnSave.setOnAction(e -> onAddEntry());
-        Button btnClear = new Button("🔄  Limpiar");        btnClear.setStyle(BTN_SECONDARY); btnClear.setOnAction(e -> clearForm());
+        Button btnSave  = new Button("✅  Guardar entrada");
+        btnSave.setStyle(Theme.btnPrimary());
+        btnSave.setOnAction(e -> onAddEntry());
+        Button btnClear = new Button("🔄  Limpiar");
+        btnClear.setStyle(Theme.btnSecondary());
+        btnClear.setOnAction(e -> clearForm());
         btnBox.getChildren().addAll(btnSave, btnClear);
         row3.getChildren().addAll(coverBox, btnBox);
         HBox.setHgrow(btnBox, Priority.ALWAYS);
@@ -222,12 +288,13 @@ public class Main extends Application {
         String type = typeCombo.getValue();
         if (type == null) return;
         String titleVal = getTitleFieldValue();
+        String fs = Theme.fieldStyle();
 
         if (type.contains("Libro")) {
             VBox authorBox = new VBox(4);
             authorBox.getChildren().add(styledLabel("✍️ Autor:"));
             authorTextField = new TextField();
-            authorTextField.setStyle(FIELD_STYLE);
+            authorTextField.setStyle(fs);
             authorTextField.setPromptText("Ej: Stephen King");
             if (!titleVal.isEmpty()) {
                 String saved = db.getAuthorForTitle(titleVal);
@@ -238,24 +305,23 @@ public class Main extends Application {
             VBox chapBox = new VBox(4);
             chapBox.getChildren().add(styledLabel("📖 Capítulo leído:"));
             chapterTextField = new TextField();
-            chapterTextField.setStyle(FIELD_STYLE);
+            chapterTextField.setStyle(fs);
             Integer lastChap = titleVal.isEmpty() ? null : db.getLastChapterForTitle(titleVal, type);
             if (lastChap != null) {
                 chapterTextField.setPromptText("Sugerencia: " + (lastChap + 1));
-                chapterTextField.setStyle(FIELD_STYLE + "-fx-prompt-text-fill:" + C_SUCCESS + ";");
+                chapterTextField.setStyle(fs + "-fx-prompt-text-fill:" + Theme.C_SUCCESS + ";");
             } else chapterTextField.setPromptText("Ej: 5");
             chapBox.getChildren().add(chapterTextField);
 
             HBox r = new HBox(15, authorBox, chapBox);
-            HBox.setHgrow(authorBox, Priority.ALWAYS);
-            HBox.setHgrow(chapBox, Priority.ALWAYS);
+            HBox.setHgrow(authorBox, Priority.ALWAYS); HBox.setHgrow(chapBox, Priority.ALWAYS);
             dynamicFieldsBox.getChildren().add(r);
 
         } else if (type.contains("Serie")) {
             VBox sBox = new VBox(4); sBox.getChildren().add(styledLabel("📺 Temporada:"));
-            seasonTextField = new TextField(); seasonTextField.setStyle(FIELD_STYLE); seasonTextField.setPromptText("1");
+            seasonTextField = new TextField(); seasonTextField.setStyle(fs); seasonTextField.setPromptText("1");
             VBox eBox = new VBox(4); eBox.getChildren().add(styledLabel("🎞️ Capítulo:"));
-            episodeTextField = new TextField(); episodeTextField.setStyle(FIELD_STYLE); episodeTextField.setPromptText("1");
+            episodeTextField = new TextField(); episodeTextField.setStyle(fs); episodeTextField.setPromptText("1");
             if (!titleVal.isEmpty()) {
                 Database.SeriesInfo info = db.getLastSeriesInfo(titleVal);
                 if (info != null) {
@@ -263,8 +329,8 @@ public class Main extends Application {
                     if (nextEp > 30) { nextEp = 1; nextSea++; }
                     seasonTextField.setText(String.valueOf(nextSea));
                     episodeTextField.setText(String.valueOf(nextEp));
-                    seasonTextField.setStyle(FIELD_STYLE + "-fx-text-fill:" + C_SUCCESS + ";");
-                    episodeTextField.setStyle(FIELD_STYLE + "-fx-text-fill:" + C_SUCCESS + ";");
+                    seasonTextField.setStyle(fs + "-fx-text-fill:" + Theme.C_SUCCESS + ";");
+                    episodeTextField.setStyle(fs + "-fx-text-fill:" + Theme.C_SUCCESS + ";");
                 }
             }
             sBox.getChildren().add(seasonTextField); eBox.getChildren().add(episodeTextField);
@@ -274,28 +340,28 @@ public class Main extends Application {
 
         } else if (type.contains("Pel")) {
             VBox dirBox = new VBox(4); dirBox.getChildren().add(styledLabel("🎬 Director:"));
-            directorTextField = new TextField(); directorTextField.setStyle(FIELD_STYLE);
+            directorTextField = new TextField(); directorTextField.setStyle(fs);
             directorTextField.setPromptText("Ej: Christopher Nolan");
             if (!titleVal.isEmpty()) { String d = db.getDirectorForTitle(titleVal); if (d != null) directorTextField.setText(d); }
             dirBox.getChildren().add(directorTextField);
             seenInCinemaCheckBox = new CheckBox("🎫 Vista en el cine");
-            seenInCinemaCheckBox.setStyle("-fx-text-fill:" + C_TEXT + "; -fx-font-size:12;");
+            seenInCinemaCheckBox.setStyle("-fx-text-fill:" + Theme.text() + "; -fx-font-size:12;");
             dynamicFieldsBox.getChildren().addAll(dirBox, seenInCinemaCheckBox);
 
         } else if (type.contains("Teatro")) {
             VBox vBox = new VBox(4); vBox.getChildren().add(styledLabel("🎤 Lugar:"));
-            venueTextField = new TextField(); venueTextField.setStyle(FIELD_STYLE); venueTextField.setPromptText("Ej: Teatro Nacional");
+            venueTextField = new TextField(); venueTextField.setStyle(fs); venueTextField.setPromptText("Ej: Teatro Nacional");
             vBox.getChildren().add(venueTextField);
             dynamicFieldsBox.getChildren().add(vBox);
 
         } else if (type.contains("Cómic")) {
             isSingleVolumeCheckBox = new CheckBox("¿Es tomo único?");
-            isSingleVolumeCheckBox.setStyle("-fx-text-fill:" + C_TEXT + "; -fx-font-size:12;");
+            isSingleVolumeCheckBox.setStyle("-fx-text-fill:" + Theme.text() + "; -fx-font-size:12;");
             VBox volBox = new VBox(4); volBox.getChildren().add(styledLabel("📕 Número de tomo:"));
-            comicVolumeTextField = new TextField(); comicVolumeTextField.setStyle(FIELD_STYLE); comicVolumeTextField.setPromptText("Ej: 1");
+            comicVolumeTextField = new TextField(); comicVolumeTextField.setStyle(fs); comicVolumeTextField.setPromptText("Ej: 1");
             volBox.getChildren().add(comicVolumeTextField);
             VBox issBox = new VBox(4); issBox.getChildren().add(styledLabel("📖 Número de serie:"));
-            comicIssueTextField = new TextField(); comicIssueTextField.setStyle(FIELD_STYLE); comicIssueTextField.setPromptText("Ej: 1");
+            comicIssueTextField = new TextField(); comicIssueTextField.setStyle(fs); comicIssueTextField.setPromptText("Ej: 1");
             issBox.getChildren().add(comicIssueTextField);
             HBox comicRow = new HBox(15, volBox, issBox);
             HBox.setHgrow(volBox, Priority.ALWAYS); HBox.setHgrow(issBox, Priority.ALWAYS);
@@ -307,45 +373,45 @@ public class Main extends Application {
         }
     }
 
-    // ══ PANEL BÚSQL ═════════════════════════════════════════════════─
+    // ══ PANEL BÚSQUEDA ═══════════════════════════════════════════════════
     private VBox createSearchPanel() {
         VBox panel = new VBox(14);
         panel.setPadding(new Insets(22));
-        panel.setStyle("-fx-background-color:" + C_SURFACE + ";");
+        panel.setStyle("-fx-background-color:" + Theme.surface() + ";");
         Label heading = new Label("🔍 Buscar registros");
-        heading.setStyle("-fx-font-size:17; -fx-font-weight:bold; -fx-text-fill:" + C_ACCENT + ";");
+        heading.setStyle("-fx-font-size:17; -fx-font-weight:bold; -fx-text-fill:" + Theme.C_ACCENT + ";");
         panel.getChildren().add(heading);
 
         HBox row1 = new HBox(12); row1.setAlignment(Pos.BOTTOM_LEFT);
         VBox tBox = new VBox(5); tBox.getChildren().add(styledLabel("Buscar por nombre:"));
-        searchTitleField = new TextField(); searchTitleField.setStyle(FIELD_STYLE); searchTitleField.setPrefWidth(300);
+        searchTitleField = new TextField(); searchTitleField.setStyle(Theme.fieldStyle()); searchTitleField.setPrefWidth(300);
         searchTitleField.setPromptText("Ej: Breaking Bad");
         tBox.getChildren().add(searchTitleField); HBox.setHgrow(tBox, Priority.ALWAYS);
-        Button btnSearch = new Button("🔎  Buscar"); btnSearch.setStyle(BTN_PRIMARY); btnSearch.setOnAction(e -> onSearchByTitle());
+        Button btnSearch = new Button("🔎  Buscar"); btnSearch.setStyle(Theme.btnPrimary()); btnSearch.setOnAction(e -> onSearchByTitle());
         row1.getChildren().addAll(tBox, btnSearch);
         panel.getChildren().add(row1);
 
         HBox row2 = new HBox(12); row2.setAlignment(Pos.BOTTOM_LEFT);
         VBox dBox = new VBox(5); dBox.getChildren().add(styledLabel("Buscar por fecha:"));
-        searchDatePicker = new DatePicker(); searchDatePicker.setStyle(FIELD_STYLE);
+        searchDatePicker = new DatePicker(); searchDatePicker.setStyle(Theme.fieldStyle());
         dBox.getChildren().add(searchDatePicker);
-        VBox typeBox = new VBox(5); typeBox.getChildren().add(styledLabel("Filtrar por tipo:"));
+        VBox typeBox2 = new VBox(5); typeBox2.getChildren().add(styledLabel("Filtrar por tipo:"));
         searchTypeCombo = new ComboBox<>();
         searchTypeCombo.getItems().addAll("Todo", "📚 Libro", "🎬 Serie", "🎥 Película", "🎭 Teatro", "💭 Cómic");
-        searchTypeCombo.setValue("Todo"); searchTypeCombo.setStyle(FIELD_STYLE);
-        typeBox.getChildren().add(searchTypeCombo);
-        Button btnDate = new Button("📅  Por fecha"); btnDate.setStyle(BTN_SECONDARY); btnDate.setOnAction(e -> onSearchByDate());
-        Button btnAll  = new Button("📋  Ver todos");  btnAll.setStyle(BTN_SECONDARY);  btnAll.setOnAction(e -> loadEntries());
-        row2.getChildren().addAll(dBox, typeBox, btnDate, btnAll);
+        searchTypeCombo.setValue("Todo"); searchTypeCombo.setStyle(Theme.fieldStyle());
+        typeBox2.getChildren().add(searchTypeCombo);
+        Button btnDate = new Button("📅  Por fecha"); btnDate.setStyle(Theme.btnSecondary()); btnDate.setOnAction(e -> onSearchByDate());
+        Button btnAll  = new Button("📋  Ver todos");  btnAll.setStyle(Theme.btnSecondary());  btnAll.setOnAction(e -> loadEntries());
+        row2.getChildren().addAll(dBox, typeBox2, btnDate, btnAll);
         panel.getChildren().add(row2);
 
         Label hint = new Label("💡 La búsqueda por nombre es parcial e insensible a mayúsculas");
-        hint.setStyle("-fx-text-fill:" + C_MUTED + "; -fx-font-size:11; -fx-font-style:italic;");
+        hint.setStyle("-fx-text-fill:" + Theme.muted() + "; -fx-font-size:11; -fx-font-style:italic;");
         panel.getChildren().add(hint);
         return panel;
     }
 
-    // ══ GUARDAR ═════════════════════════════════════════════════════─
+    // ══ GUARDAR ═══════════════════════════════════════════════════════════
     private void onAddEntry() {
         if (getTitleFieldValue().isEmpty() || typeCombo.getValue() == null) {
             showAlert("Error", "Por favor completa título y tipo"); return;
@@ -388,13 +454,13 @@ public class Main extends Application {
         showAlert("Éxito", "Entrada registrada correctamente ✨");
     }
 
-    // ══ TARJETAS ══════════════════════════════════════════════─
+    // ══ TARJETAS ══════════════════════════════════════════════════════════
     private void loadEntries() {
         entriesContainer.getChildren().clear();
         List<Entry> entries = db.getAllEntries();
         if (entries.isEmpty()) {
             Label empty = new Label("📭 No hay registros todavía. ¡Empieza a registrar!");
-            empty.setStyle("-fx-font-size:15; -fx-text-fill:" + C_MUTED + ";");
+            empty.setStyle("-fx-font-size:15; -fx-text-fill:" + Theme.muted() + ";");
             entriesContainer.getChildren().add(empty); return;
         }
         for (Entry e : entries) entriesContainer.getChildren().add(createEntryCard(e));
@@ -403,22 +469,22 @@ public class Main extends Application {
     private VBox createEntryCard(Entry entry) {
         VBox card = new VBox(8);
         card.setPadding(new Insets(14));
-        card.setStyle(CARD_STYLE);
+        card.setStyle(Theme.cardStyle());
         HBox head = new HBox(14);
         head.setAlignment(Pos.TOP_LEFT);
         if (entry.getCoverPath() != null) {
             try {
                 ImageView img = new ImageView(new Image(new FileInputStream(entry.getCoverPath()), 75, 110, true, true));
-                img.setStyle("-fx-effect:dropshadow(gaussian,rgba(0,0,0,0.5),6,0,0,2);");
+                img.setStyle("-fx-effect:dropshadow(gaussian,rgba(0,0,0,0.3),6,0,0,2);");
                 head.getChildren().add(img);
             } catch (Exception ex) { head.getChildren().add(placeholderIcon()); }
         } else { head.getChildren().add(placeholderIcon()); }
 
         VBox info = new VBox(5);
         Label typeL  = new Label(entry.getType());
-        typeL.setStyle("-fx-font-size:11; -fx-text-fill:" + C_ACCENT2 + "; -fx-font-weight:bold;");
+        typeL.setStyle("-fx-font-size:11; -fx-text-fill:" + Theme.C_ACCENT2 + "; -fx-font-weight:bold;");
         Label titleL = new Label(entry.getTitle());
-        titleL.setStyle("-fx-font-size:15; -fx-font-weight:bold; -fx-text-fill:" + C_TEXT + ";");
+        titleL.setStyle("-fx-font-size:15; -fx-font-weight:bold; -fx-text-fill:" + Theme.text() + ";");
         info.getChildren().addAll(typeL, titleL);
         if (entry.getType().contains("Libro")) {
             if (entry.getAuthor() != null && !entry.getAuthor().isBlank()) info.getChildren().add(chip("✍️ " + entry.getAuthor()));
@@ -431,7 +497,7 @@ public class Main extends Application {
         } else if (entry.getType().contains("Teatro") && entry.getVenue() != null) {
             info.getChildren().add(chip("🎭 " + entry.getVenue()));
         } else if (entry.getType().contains("Cómic")) {
-            if (Boolean.TRUE.equals(entry.getIsSingleVolume())) { info.getChildren().add(chip("Tomo único")); }
+            if (Boolean.TRUE.equals(entry.getIsSingleVolume())) info.getChildren().add(chip("Tomo único"));
             else {
                 String ci = "";
                 if (entry.getComicVolume() != null) ci += "Tomo " + entry.getComicVolume();
@@ -453,47 +519,50 @@ public class Main extends Application {
         if (entry.getDescription() != null && !entry.getDescription().isBlank()) {
             TextArea desc = new TextArea(entry.getDescription());
             desc.setWrapText(true); desc.setPrefRowCount(2); desc.setEditable(false);
-            desc.setStyle("-fx-control-inner-background:#2a2a40; -fx-text-fill:" + C_MUTED +
+            desc.setStyle("-fx-control-inner-background:" + Theme.input() +
+                    "; -fx-text-fill:" + Theme.muted() +
                     "; -fx-font-size:11; -fx-background-radius:6;");
             card.getChildren().add(desc);
         }
         return card;
     }
 
-    // ══ EDICIÓN ═════════════════════════════════════════════─
+    // ══ EDICIÓN ═══════════════════════════════════════════════════════════
     private void openEditDialog(Entry entry) {
         Dialog<ButtonType> dialog = new Dialog<>();
         dialog.setTitle("✏️ Editar Registro");
         dialog.setHeaderText("Modifica los datos del registro");
-        dialog.getDialogPane().setStyle("-fx-background-color:" + C_SURFACE + ";");
-        VBox form = new VBox(10); form.setPadding(new Insets(18)); form.setStyle("-fx-background-color:" + C_SURFACE + ";");
+        dialog.getDialogPane().setStyle("-fx-background-color:" + Theme.surface() + ";");
+        VBox form = new VBox(10); form.setPadding(new Insets(18));
+        form.setStyle("-fx-background-color:" + Theme.surface() + ";");
+        String fs = Theme.fieldStyle();
 
         TextField eTitleF = styledField(entry.getTitle());
         ComboBox<String> eTypeC = new ComboBox<>();
         eTypeC.getItems().addAll("📚 Libro","🎬 Serie","🎥 Película","🎭 Teatro","💭 Cómic");
-        eTypeC.setValue(entry.getType()); eTypeC.setStyle(FIELD_STYLE);
+        eTypeC.setValue(entry.getType()); eTypeC.setStyle(fs);
         TextArea eDescA = new TextArea(entry.getDescription() != null ? entry.getDescription() : "");
-        eDescA.setWrapText(true); eDescA.setPrefRowCount(3); eDescA.setStyle(FIELD_STYLE);
-        DatePicker eDateP = new DatePicker(entry.getDate()); eDateP.setStyle(FIELD_STYLE);
+        eDescA.setWrapText(true); eDescA.setPrefRowCount(3); eDescA.setStyle(fs);
+        DatePicker eDateP = new DatePicker(entry.getDate()); eDateP.setStyle(fs);
 
-        TextField eChapF  = styledField(entry.getChapters() != null ? entry.getChapters().toString() : "");
-        TextField eAuthF  = styledField(entry.getAuthor() != null ? entry.getAuthor() : "");
-        TextField eSeaF   = styledField(entry.getSeason()  != null ? entry.getSeason().toString()  : "");
-        TextField eEpF    = styledField(entry.getEpisode() != null ? entry.getEpisode().toString() : "");
-        TextField eVenF   = styledField(entry.getVenue()   != null ? entry.getVenue() : "");
-        TextField eDirF   = styledField(entry.getDirector() != null ? entry.getDirector() : "");
-        CheckBox eCinC    = new CheckBox("🎫 Vista en el cine"); eCinC.setStyle("-fx-text-fill:" + C_TEXT + ";");
+        TextField eChapF = styledField(entry.getChapters() != null ? entry.getChapters().toString() : "");
+        TextField eAuthF = styledField(entry.getAuthor()   != null ? entry.getAuthor()   : "");
+        TextField eSeaF  = styledField(entry.getSeason()   != null ? entry.getSeason().toString()  : "");
+        TextField eEpF   = styledField(entry.getEpisode()  != null ? entry.getEpisode().toString() : "");
+        TextField eVenF  = styledField(entry.getVenue()    != null ? entry.getVenue()    : "");
+        TextField eDirF  = styledField(entry.getDirector() != null ? entry.getDirector() : "");
+        CheckBox eCinC   = new CheckBox("🎫 Vista en el cine"); eCinC.setStyle("-fx-text-fill:" + Theme.text() + ";");
         eCinC.setSelected(Boolean.TRUE.equals(entry.getSeenInCinema()));
-        CheckBox eSingC   = new CheckBox("¿Es tomo único?"); eSingC.setStyle("-fx-text-fill:" + C_TEXT + ";");
+        CheckBox eSingC  = new CheckBox("¿Es tomo único?"); eSingC.setStyle("-fx-text-fill:" + Theme.text() + ";");
         eSingC.setSelected(Boolean.TRUE.equals(entry.getIsSingleVolume()));
-        TextField eVolF   = styledField(entry.getComicVolume() != null ? entry.getComicVolume().toString() : "");
-        TextField eIssF   = styledField(entry.getComicIssue()  != null ? entry.getComicIssue().toString()  : "");
+        TextField eVolF  = styledField(entry.getComicVolume() != null ? entry.getComicVolume().toString() : "");
+        TextField eIssF  = styledField(entry.getComicIssue()  != null ? entry.getComicIssue().toString()  : "");
 
         VBox dynEdit = new VBox(8);
         Runnable refreshDyn = () -> {
             dynEdit.getChildren().clear();
             String t = eTypeC.getValue(); if (t == null) return;
-            if (t.contains("Libro"))  dynEdit.getChildren().addAll(styledLabel("✍️ Autor:"),eAuthF,styledLabel("📖 Capítulo:"),eChapF);
+            if (t.contains("Libro"))       dynEdit.getChildren().addAll(styledLabel("✍️ Autor:"),eAuthF,styledLabel("📖 Capítulo:"),eChapF);
             else if (t.contains("Serie"))  dynEdit.getChildren().addAll(styledLabel("Temporada:"),eSeaF,styledLabel("Capítulo:"),eEpF);
             else if (t.contains("Pel"))    dynEdit.getChildren().addAll(styledLabel("Director:"),eDirF,eCinC);
             else if (t.contains("Teatro")) dynEdit.getChildren().addAll(styledLabel("Lugar:"),eVenF);
@@ -524,7 +593,7 @@ public class Main extends Application {
         }
     }
 
-    // ══ BÚSQL ═════════════════════════════════════════════─
+    // ══ BÚSQUEDA ══════════════════════════════════════════════════════════
     private void onSearchByTitle() {
         String term = searchTitleField.getText().trim();
         if (term.isEmpty()) { showAlert("Info", "Introduce un término de búsqueda"); return; }
@@ -541,16 +610,16 @@ public class Main extends Application {
         entriesContainer.getChildren().clear();
         if (entries.isEmpty()) {
             Label l = new Label("📭 Sin resultados para " + desc);
-            l.setStyle("-fx-font-size:14; -fx-text-fill:" + C_MUTED + ";");
+            l.setStyle("-fx-font-size:14; -fx-text-fill:" + Theme.muted() + ";");
             entriesContainer.getChildren().add(l); return;
         }
         Label l = new Label("📊 " + entries.size() + " resultado(s) para " + desc);
-        l.setStyle("-fx-font-size:13; -fx-font-weight:bold; -fx-text-fill:" + C_SUCCESS + ";");
+        l.setStyle("-fx-font-size:13; -fx-font-weight:bold; -fx-text-fill:" + Theme.C_SUCCESS + ";");
         entriesContainer.getChildren().add(l);
         for (Entry e : entries) entriesContainer.getChildren().add(createEntryCard(e));
     }
 
-    // ══ HELPERS ═══════════════════════════════════════════─
+    // ══ HELPERS ═══════════════════════════════════════════════════════════
     private void updateTitleSuggestions() {
         if (typeCombo == null || titleField == null) return;
         List<String> s = db.getTitleSuggestions(typeCombo.getValue() != null ? typeCombo.getValue() : "");
@@ -578,15 +647,10 @@ public class Main extends Application {
         String v = titleField.getValue();
         return v != null ? v.trim() : (titleTextField != null ? titleTextField.getText().trim() : "");
     }
-    private Label styledLabel(String text) { Label l = new Label(text); l.setStyle(LABEL_BOLD); return l; }
-    private TextField styledField(String text) { TextField f = new TextField(text); f.setStyle(FIELD_STYLE); return f; }
-    private Label chip(String text) {
-        Label l = new Label(text);
-        l.setStyle("-fx-background-color:#3b3b55; -fx-text-fill:" + C_MUTED +
-                "; -fx-font-size:11; -fx-padding:2 8; -fx-background-radius:10;");
-        return l;
-    }
-    private Label placeholderIcon() { Label l = new Label("📷"); l.setStyle("-fx-font-size:36; -fx-text-fill:#444;"); return l; }
+    private Label styledLabel(String text) { Label l = new Label(text); l.setStyle(Theme.labelBold()); return l; }
+    private TextField styledField(String text) { TextField f = new TextField(text); f.setStyle(Theme.fieldStyle()); return f; }
+    private Label chip(String text) { Label l = new Label(text); l.setStyle(Theme.chipStyle()); return l; }
+    private Label placeholderIcon() { Label l = new Label("📷"); l.setStyle("-fx-font-size:36; -fx-text-fill:" + Theme.muted() + ";"); return l; }
     private Button iconBtn(String icon) {
         Button b = new Button(icon);
         b.setStyle("-fx-background-color:transparent; -fx-font-size:15; -fx-cursor:hand; -fx-padding:4 8;");
@@ -595,7 +659,7 @@ public class Main extends Application {
     private void showAlert(String title, String msg) {
         Alert a = new Alert(Alert.AlertType.INFORMATION);
         a.setTitle(title); a.setHeaderText(null); a.setContentText(msg);
-        a.getDialogPane().setStyle("-fx-background-color:" + C_SURFACE + "; -fx-font-size:13;");
+        a.getDialogPane().setStyle("-fx-background-color:" + Theme.surface() + "; -fx-font-size:13;");
         a.showAndWait();
     }
     public static void main(String[] args) { launch(args); }
