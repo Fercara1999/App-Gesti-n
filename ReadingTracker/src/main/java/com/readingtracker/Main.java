@@ -36,8 +36,7 @@ public class Main extends Application {
     private TextField episodeTextField;
     private TextField venueTextField;
     private CheckBox isSingleVolumeCheckBox;
-    private TextField comicSeriesNumberTextField;
-    private TextField comicIssueNumberTextField;
+    private TextField comicNumberTextField;
     private TextField searchTitleField;
     private DatePicker searchDatePicker;
     private ComboBox<String> searchTypeCombo;
