@@ -8,15 +8,24 @@ import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.input.DragEvent;
+import javafx.scene.input.Dragboard;
+import javafx.scene.input.TransferMode;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
 import com.readingtracker.models.Database;
 import com.readingtracker.models.Entry;
-import java.io.File;
-import java.io.FileInputStream;
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.*;
+import java.net.URI;
+import java.net.URL;
+import java.net.URLConnection;
+import java.nio.file.*;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 public class Main extends Application {
 
@@ -43,11 +52,9 @@ public class Main extends Application {
     private TextField comicIssueTextField;
     private TextField directorTextField;
     private CheckBox seenInCinemaCheckBox;
-    // Checks de finalización
-    private CheckBox finishedCheck;       // libro terminado / tomo terminado
-    private CheckBox seasonFinishedCheck; // fin de temporada
-    private CheckBox seriesFinishedCheck; // serie terminada (series y cómics)
-    // Valoración
+    private CheckBox finishedCheck;
+    private CheckBox seasonFinishedCheck;
+    private CheckBox seriesFinishedCheck;
     private int currentRating = 0;
     private Label[] starLabels;
 
@@ -65,8 +72,14 @@ public class Main extends Application {
     private Button themeBtn;
     private Tab statsTab;
 
+    /** Directorio local donde se guardan las portadas descargadas desde el navegador */
+    private static final String COVERS_DIR = "covers";
+
     @Override
     public void start(Stage stage) {
+        // Crear directorio de portadas si no existe
+        try { Files.createDirectories(Paths.get(COVERS_DIR)); } catch (Exception ignored) {}
+
         db = new Database();
         statsPanel = new StatsPanel(db);
 
@@ -125,7 +138,7 @@ public class Main extends Application {
         stage.show();
     }
 
-    // ═ TEMA ════════════════════════════════════════════════════════════
+    // ═ TEMA ══════════════════════════════════════════════════
     private void reapplyAllStyles() {
         applyRootStyle(); applyHeaderStyle(); applyTabPaneStyle();
         applyEntriesContainerStyle(); applyScrollStyle();
@@ -136,9 +149,7 @@ public class Main extends Application {
         themeBtn.setStyle("-fx-background-color:transparent; -fx-border-color:" + Theme.C_ACCENT +
             "; -fx-border-radius:20; -fx-text-fill:" + Theme.C_ACCENT +
             "; -fx-padding:6 16; -fx-cursor:hand; -fx-font-size:12;");
-        refreshFieldStyles();
-        loadEntries();
-        statsPanel.refresh();
+        refreshFieldStyles(); loadEntries(); statsPanel.refresh();
     }
     private void applyRootStyle()   { root.setStyle("-fx-background-color:" + Theme.bg() + ";"); }
     private void applyHeaderStyle() { header.setStyle("-fx-background-color:" + Theme.surface() +
@@ -162,12 +173,11 @@ public class Main extends Application {
         if (searchTypeCombo   !=null) searchTypeCombo.setStyle(fs);
         updateDynamicFields();
     }
-
     private Tab buildTab(String text, javafx.scene.Node content) {
         Tab t = new Tab(text, content); t.setStyle("-fx-font-size:13;"); return t;
     }
 
-    // ═ PANEL REGISTRAR ══════════════════════════════════════════════════
+    // ═ PANEL REGISTRAR ═══════════════════════════════════════════════
     private VBox createInputPanel() {
         VBox panel = new VBox(14);
         panel.setPadding(new Insets(22));
@@ -177,7 +187,6 @@ public class Main extends Application {
         heading.setStyle("-fx-font-size:17; -fx-font-weight:bold; -fx-text-fill:" + Theme.C_ACCENT + ";");
         panel.getChildren().add(heading);
 
-        // Fila 1: Título, Tipo, Fecha
         HBox row1 = new HBox(15);
         VBox titleBox = new VBox(5);
         titleBox.getChildren().add(styledLabel("Título:"));
@@ -187,12 +196,9 @@ public class Main extends Application {
         titleField.setStyle(Theme.fieldStyle());
         titleTextField = titleField.getEditor();
         titleTextField.setPromptText("Ej: El Quijote");
-        // Autocompletar al escribir
         titleTextField.textProperty().addListener((o, ov, nv) -> {
-            if (!nv.isBlank() && typeCombo != null && typeCombo.getValue() != null)
-                updateDynamicFields();
+            if (!nv.isBlank() && typeCombo != null && typeCombo.getValue() != null) updateDynamicFields();
         });
-        // Autocompletar al seleccionar del desplegable
         titleField.setOnAction(e -> updateDynamicFields());
         titleBox.getChildren().add(titleField);
         HBox.setHgrow(titleBox, Priority.ALWAYS);
@@ -213,17 +219,14 @@ public class Main extends Application {
         datePicker.setPrefWidth(160);
         datePicker.setStyle(Theme.fieldStyle());
         dateBox.getChildren().add(datePicker);
-
         row1.getChildren().addAll(titleBox, typeBox, dateBox);
         panel.getChildren().add(row1);
 
-        // Campos dinámicos
         dynamicCard = new VBox(10);
         dynamicFieldsBox = dynamicCard;
         applyDynamicCardStyle();
         panel.getChildren().add(dynamicCard);
 
-        // Descripción
         VBox descBox = new VBox(5);
         descBox.getChildren().add(styledLabel("Descripción / Notas:"));
         descriptionArea = new TextArea();
@@ -234,41 +237,33 @@ public class Main extends Application {
         descBox.getChildren().add(descriptionArea);
         panel.getChildren().add(descBox);
 
-        // Fila portada + estrellas + botón guardar
         HBox row3 = new HBox(24);
         row3.setAlignment(Pos.CENTER_LEFT);
 
-        // Portada con zona de drop
+        // ── Zona de portada ──────────────────────────────────────────────
         VBox coverBox = new VBox(5);
         coverBox.getChildren().add(styledLabel("Portada:"));
         coverPreview = new ImageView();
         coverPreview.setFitWidth(90); coverPreview.setFitHeight(130);
-        Label coverHint = new Label("📸\nArrastra\nuna imagen");
-        coverHint.setStyle("-fx-text-fill:" + Theme.muted() + "; -fx-font-size:11; -fx-text-alignment:center;");
+        coverPreview.setPreserveRatio(true);
+        Label coverHint = new Label("📸\nArrastra desde\nel navegador\no haz clic");
+        coverHint.setStyle("-fx-text-fill:" + Theme.muted() + "; -fx-font-size:10; -fx-text-alignment:center;");
         coverHint.setAlignment(Pos.CENTER);
         coverDropZone = new StackPane(coverHint, coverPreview);
         coverDropZone.setPrefSize(90, 130);
+        coverDropZone.setMinSize(90, 130);
         coverDropZone.setStyle("-fx-border-color:" + Theme.C_ACCENT +
             "; -fx-border-width:2; -fx-border-style:dashed; -fx-border-radius:8; -fx-cursor:hand;");
         setupDragAndDrop();
-        // También abrir selector de archivo al hacer clic
-        coverDropZone.setOnMouseClicked(ev -> {
-            javafx.stage.FileChooser fc = new javafx.stage.FileChooser();
-            fc.setTitle("Seleccionar portada");
-            fc.getExtensionFilters().add(
-                new javafx.stage.FileChooser.ExtensionFilter("Imágenes", "*.png","*.jpg","*.jpeg","*.webp","*.gif"));
-            File f = fc.showOpenDialog(coverDropZone.getScene().getWindow());
-            if (f != null) loadCoverFile(f);
-        });
+        coverDropZone.setOnMouseClicked(ev -> openFilePicker());
         coverBox.getChildren().add(coverDropZone);
 
-        // Estrellas
+        // ── Estrellas ────────────────────────────────────────────────────
         VBox starBox = new VBox(6);
         starBox.getChildren().add(styledLabel("⭐ Valoración:"));
         HBox starsRow = buildStarWidget(10, 0);
         starBox.getChildren().add(starsRow);
 
-        // Botón guardar
         VBox btnBox = new VBox(10);
         btnBox.setAlignment(Pos.CENTER);
         Button btnSave = new Button("✅  Guardar entrada");
@@ -282,42 +277,146 @@ public class Main extends Application {
         return panel;
     }
 
-    /** Construye una HBox con 'count' estrellas interactivas. Rellena hasta 'initial'. */
+    // ═ DRAG & DROP (archivo local + URL del navegador) ══════════════════
+    private void setupDragAndDrop() {
+        coverDropZone.setOnDragOver((DragEvent ev) -> {
+            Dragboard db2 = ev.getDragboard();
+            // Aceptar si trae archivos, URL o texto plano (la URL de la imagen)
+            if (db2.hasFiles() || db2.hasUrl() || db2.hasString()) {
+                ev.acceptTransferModes(TransferMode.COPY);
+            }
+            ev.consume();
+        });
+
+        coverDropZone.setOnDragDropped((DragEvent ev) -> {
+            Dragboard db2 = ev.getDragboard();
+            boolean ok = false;
+
+            if (db2.hasFiles() && !db2.getFiles().isEmpty()) {
+                // Caso 1: archivo local arrastrado desde el explorador
+                loadCoverFile(db2.getFiles().get(0));
+                ok = true;
+            } else {
+                // Caso 2: imagen arrastrada desde el navegador (URL)
+                String rawUrl = db2.hasUrl() ? db2.getUrl() : (db2.hasString() ? db2.getString() : null);
+                if (rawUrl != null && !rawUrl.isBlank()) {
+                    // Limpiar posible prefijo "file://" o saltos de línea
+                    String imageUrl = rawUrl.trim().split("\n")[0].trim();
+                    // Si es una URL HTTP(S) que parece imagen, descargar
+                    if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
+                        ok = downloadAndLoadUrl(imageUrl);
+                    } else if (imageUrl.startsWith("file:")) {
+                        // URL de archivo local
+                        try {
+                            File f = new File(new URI(imageUrl));
+                            if (f.exists()) { loadCoverFile(f); ok = true; }
+                        } catch (Exception ex) { /* ignorar */ }
+                    }
+                }
+            }
+
+            ev.setDropCompleted(ok);
+            ev.consume();
+        });
+    }
+
+    /**
+     * Descarga una imagen desde una URL HTTP(S), la guarda en covers/ con un nombreúnico
+     * y la carga como portada. Devuelve true si tuvo éxito.
+     */
+    private boolean downloadAndLoadUrl(String imageUrl) {
+        try {
+            // Extensión desde la URL (png, jpg...)
+            String lower = imageUrl.toLowerCase();
+            String ext = "jpg";
+            for (String e : new String[]{"png","jpg","jpeg","webp","gif"}) {
+                if (lower.contains("." + e)) { ext = e; break; }
+            }
+            String fileName = UUID.randomUUID() + "." + ext;
+            Path dest = Paths.get(COVERS_DIR, fileName);
+
+            URLConnection conn = new URL(imageUrl).openConnection();
+            // Simular un navegador para evitar rechazos 403
+            conn.setRequestProperty("User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                + "(KHTML, like Gecko) Chrome/120.0 Safari/537.36");
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(15000);
+
+            // Intentar guardar con ImageIO (soporta webp si hay plugin)
+            try (InputStream in = conn.getInputStream()) {
+                if (ext.equals("webp")) {
+                    // Para webp: convertir a PNG via BufferedImage si está disponible
+                    BufferedImage img = ImageIO.read(in);
+                    if (img != null) {
+                        fileName = UUID.randomUUID() + ".png";
+                        dest = Paths.get(COVERS_DIR, fileName);
+                        ImageIO.write(img, "png", dest.toFile());
+                    } else {
+                        // Fallback: copiar bytes directamente
+                        Files.copy(conn.getInputStream(), dest, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                } else {
+                    Files.copy(in, dest, StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+
+            // Cargar en la UI
+            selectedCoverPath = dest.toAbsolutePath().toString();
+            coverPreview.setImage(new Image(dest.toUri().toString(), 90, 130, true, true));
+            return true;
+        } catch (Exception ex) {
+            showAlert("Error de portada",
+                "No se pudo descargar la imagen desde el navegador.\n"
+                + "Prueba a guardarla primero y arrástrala desde el explorador de archivos.\n"
+                + "Detalle: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    private void openFilePicker() {
+        javafx.stage.FileChooser fc = new javafx.stage.FileChooser();
+        fc.setTitle("Seleccionar portada");
+        fc.getExtensionFilters().add(
+            new javafx.stage.FileChooser.ExtensionFilter(
+                "Imágenes", "*.png","*.jpg","*.jpeg","*.webp","*.gif"));
+        File f = fc.showOpenDialog(coverDropZone.getScene().getWindow());
+        if (f != null) loadCoverFile(f);
+    }
+
+    private void loadCoverFile(File f) {
+        try {
+            selectedCoverPath = f.getAbsolutePath();
+            coverPreview.setImage(new Image(f.toURI().toString(), 90, 130, true, true));
+        } catch (Exception ex) { showAlert("Error", "No se pudo cargar la imagen"); }
+    }
+
+    // ═ WIDGET ESTRELLAS ═══════════════════════════════════════════════
     private HBox buildStarWidget(int count, int initial) {
         currentRating = initial;
         starLabels = new Label[count];
-        HBox row = new HBox(3);
-        row.setAlignment(Pos.CENTER_LEFT);
+        HBox row = new HBox(3); row.setAlignment(Pos.CENTER_LEFT);
         for (int i = 0; i < count; i++) {
             final int idx = i + 1;
             Label star = new Label("☆");
             star.setStyle("-fx-font-size:22; -fx-cursor:hand; -fx-text-fill:#cccccc;");
             star.setOnMouseEntered(e -> highlightStars(starLabels, idx));
             star.setOnMouseExited(e  -> highlightStars(starLabels, currentRating));
-            star.setOnMouseClicked(e -> {
-                currentRating = idx;
-                highlightStars(starLabels, currentRating);
-            });
-            starLabels[i] = star;
-            row.getChildren().add(star);
+            star.setOnMouseClicked(e -> { currentRating = idx; highlightStars(starLabels, currentRating); });
+            starLabels[i] = star; row.getChildren().add(star);
         }
         highlightStars(starLabels, initial);
         return row;
     }
-
     private void highlightStars(Label[] stars, int upTo) {
         for (int i = 0; i < stars.length; i++) {
-            if (i < upTo) {
-                stars[i].setText("★");
-                stars[i].setStyle("-fx-font-size:22; -fx-cursor:hand; -fx-text-fill:#f5c518;");
-            } else {
-                stars[i].setText("☆");
-                stars[i].setStyle("-fx-font-size:22; -fx-cursor:hand; -fx-text-fill:#cccccc;");
-            }
+            boolean on = i < upTo;
+            stars[i].setText(on ? "★" : "☆");
+            stars[i].setStyle("-fx-font-size:22; -fx-cursor:hand; -fx-text-fill:" + (on ? "#f5c518" : "#cccccc") + ";");
         }
     }
 
-    // ═ CAMPOS DINÁMICOS ══════════════════════════════════════════════════
+    // ═ CAMPOS DINÁMICOS ═══════════════════════════════════════════════
     private void updateDynamicFields() {
         if (dynamicFieldsBox == null) return;
         dynamicFieldsBox.getChildren().clear();
@@ -333,30 +432,21 @@ public class Main extends Application {
             authorTextField = new TextField();
             authorTextField.setStyle(fs);
             authorTextField.setPromptText("Ej: Stephen King");
-            // Autocompletar autor si el título ya existe en la BD
-            if (!titleVal.isEmpty()) {
-                String saved = db.getAuthorForTitle(titleVal);
-                if (saved != null) authorTextField.setText(saved);
-            }
+            if (!titleVal.isEmpty()) { String saved = db.getAuthorForTitle(titleVal); if (saved!=null) authorTextField.setText(saved); }
             authorBox.getChildren().add(authorTextField);
-
             VBox chapBox = new VBox(4);
             chapBox.getChildren().add(styledLabel("📖 Capítulo leído:"));
-            chapterTextField = new TextField();
-            chapterTextField.setStyle(fs);
+            chapterTextField = new TextField(); chapterTextField.setStyle(fs);
             Integer lastChap = titleVal.isEmpty() ? null : db.getLastChapterForTitle(titleVal, type);
             if (lastChap != null) {
                 chapterTextField.setPromptText("Sugerencia: " + (lastChap + 1));
                 chapterTextField.setStyle(fs + "-fx-prompt-text-fill:" + Theme.C_SUCCESS + ";");
             } else chapterTextField.setPromptText("Ej: 5");
             chapBox.getChildren().add(chapterTextField);
-
             HBox r = new HBox(15, authorBox, chapBox);
             HBox.setHgrow(authorBox, Priority.ALWAYS); HBox.setHgrow(chapBox, Priority.ALWAYS);
             dynamicFieldsBox.getChildren().add(r);
-
-            finishedCheck = new CheckBox("📘 Libro terminado");
-            finishedCheck.setStyle(cbStyle);
+            finishedCheck = new CheckBox("📘 Libro terminado"); finishedCheck.setStyle(cbStyle);
             dynamicFieldsBox.getChildren().add(finishedCheck);
 
         } else if (type.contains("Serie")) {
@@ -379,13 +469,9 @@ public class Main extends Application {
             HBox r = new HBox(15, sBox, eBox);
             HBox.setHgrow(sBox, Priority.ALWAYS); HBox.setHgrow(eBox, Priority.ALWAYS);
             dynamicFieldsBox.getChildren().add(r);
-
-            seasonFinishedCheck = new CheckBox("🌟 Fin de temporada");
-            seasonFinishedCheck.setStyle(cbStyle);
-            seriesFinishedCheck = new CheckBox("🏆 Serie terminada");
-            seriesFinishedCheck.setStyle(cbStyle);
-            HBox checksRow = new HBox(20, seasonFinishedCheck, seriesFinishedCheck);
-            dynamicFieldsBox.getChildren().add(checksRow);
+            seasonFinishedCheck = new CheckBox("🌟 Fin de temporada"); seasonFinishedCheck.setStyle(cbStyle);
+            seriesFinishedCheck = new CheckBox("🏆 Serie terminada"); seriesFinishedCheck.setStyle(cbStyle);
+            dynamicFieldsBox.getChildren().add(new HBox(20, seasonFinishedCheck, seriesFinishedCheck));
 
         } else if (type.contains("Pel")) {
             VBox dirBox = new VBox(4); dirBox.getChildren().add(styledLabel("🎬 Director:"));
@@ -393,8 +479,7 @@ public class Main extends Application {
             directorTextField.setPromptText("Ej: Christopher Nolan");
             if (!titleVal.isEmpty()) { String d = db.getDirectorForTitle(titleVal); if (d!=null) directorTextField.setText(d); }
             dirBox.getChildren().add(directorTextField);
-            seenInCinemaCheckBox = new CheckBox("🎫 Vista en el cine");
-            seenInCinemaCheckBox.setStyle(cbStyle);
+            seenInCinemaCheckBox = new CheckBox("🎫 Vista en el cine"); seenInCinemaCheckBox.setStyle(cbStyle);
             dynamicFieldsBox.getChildren().addAll(dirBox, seenInCinemaCheckBox);
 
         } else if (type.contains("Teatro")) {
@@ -404,8 +489,7 @@ public class Main extends Application {
             dynamicFieldsBox.getChildren().add(vBox);
 
         } else if (type.contains("Cómic")) {
-            isSingleVolumeCheckBox = new CheckBox("¿Es tomo único?");
-            isSingleVolumeCheckBox.setStyle(cbStyle);
+            isSingleVolumeCheckBox = new CheckBox("¿Es tomo único?"); isSingleVolumeCheckBox.setStyle(cbStyle);
             VBox volBox = new VBox(4); volBox.getChildren().add(styledLabel("📕 Número de tomo:"));
             comicVolumeTextField = new TextField(); comicVolumeTextField.setStyle(fs); comicVolumeTextField.setPromptText("Ej: 1");
             volBox.getChildren().add(comicVolumeTextField);
@@ -414,37 +498,27 @@ public class Main extends Application {
             issBox.getChildren().add(comicIssueTextField);
             HBox comicRow = new HBox(15, volBox, issBox);
             HBox.setHgrow(volBox, Priority.ALWAYS); HBox.setHgrow(issBox, Priority.ALWAYS);
-            isSingleVolumeCheckBox.setOnAction(e -> {
-                boolean s = isSingleVolumeCheckBox.isSelected();
-                comicRow.setVisible(!s); comicRow.setManaged(!s);
-            });
-            finishedCheck = new CheckBox("📘 Tomo terminado");
-            finishedCheck.setStyle(cbStyle);
-            seriesFinishedCheck = new CheckBox("🏆 Serie terminada");
-            seriesFinishedCheck.setStyle(cbStyle);
-            HBox checksRow = new HBox(20, finishedCheck, seriesFinishedCheck);
-            dynamicFieldsBox.getChildren().addAll(isSingleVolumeCheckBox, comicRow, checksRow);
+            isSingleVolumeCheckBox.setOnAction(e -> { boolean s=isSingleVolumeCheckBox.isSelected(); comicRow.setVisible(!s); comicRow.setManaged(!s); });
+            finishedCheck = new CheckBox("📘 Tomo terminado"); finishedCheck.setStyle(cbStyle);
+            seriesFinishedCheck = new CheckBox("🏆 Serie terminada"); seriesFinishedCheck.setStyle(cbStyle);
+            dynamicFieldsBox.getChildren().addAll(isSingleVolumeCheckBox, comicRow, new HBox(20, finishedCheck, seriesFinishedCheck));
         }
     }
 
-    // ═ PANEL BÚSQUEDA ══════════════════════════════════════════════════
+    // ═ PANEL BÚSQUEDA ═══════════════════════════════════════════════
     private VBox createSearchPanel() {
-        VBox panel = new VBox(14);
-        panel.setPadding(new Insets(22));
+        VBox panel = new VBox(14); panel.setPadding(new Insets(22));
         panel.setStyle("-fx-background-color:" + Theme.surface() + ";");
         Label heading = new Label("🔍 Buscar registros");
         heading.setStyle("-fx-font-size:17; -fx-font-weight:bold; -fx-text-fill:" + Theme.C_ACCENT + ";");
         panel.getChildren().add(heading);
-
         HBox row1 = new HBox(12); row1.setAlignment(Pos.BOTTOM_LEFT);
         VBox tBox = new VBox(5); tBox.getChildren().add(styledLabel("Buscar por nombre:"));
         searchTitleField = new TextField(); searchTitleField.setStyle(Theme.fieldStyle()); searchTitleField.setPrefWidth(300);
         searchTitleField.setPromptText("Ej: Breaking Bad");
         tBox.getChildren().add(searchTitleField); HBox.setHgrow(tBox, Priority.ALWAYS);
         Button btnSearch = new Button("🔎  Buscar"); btnSearch.setStyle(Theme.btnPrimary()); btnSearch.setOnAction(e -> onSearchByTitle());
-        row1.getChildren().addAll(tBox, btnSearch);
-        panel.getChildren().add(row1);
-
+        row1.getChildren().addAll(tBox, btnSearch); panel.getChildren().add(row1);
         HBox row2 = new HBox(12); row2.setAlignment(Pos.BOTTOM_LEFT);
         VBox dBox = new VBox(5); dBox.getChildren().add(styledLabel("Buscar por fecha:"));
         searchDatePicker = new DatePicker(); searchDatePicker.setStyle(Theme.fieldStyle());
@@ -456,16 +530,14 @@ public class Main extends Application {
         typeBox2.getChildren().add(searchTypeCombo);
         Button btnDate = new Button("📅  Por fecha"); btnDate.setStyle(Theme.btnSecondary()); btnDate.setOnAction(e -> onSearchByDate());
         Button btnAll  = new Button("📋  Ver todos");  btnAll.setStyle(Theme.btnSecondary());  btnAll.setOnAction(e -> loadEntries());
-        row2.getChildren().addAll(dBox, typeBox2, btnDate, btnAll);
-        panel.getChildren().add(row2);
-
+        row2.getChildren().addAll(dBox, typeBox2, btnDate, btnAll); panel.getChildren().add(row2);
         Label hint = new Label("💡 La búsqueda por nombre es parcial e insensible a mayúsculas");
         hint.setStyle("-fx-text-fill:" + Theme.muted() + "; -fx-font-size:11; -fx-font-style:italic;");
         panel.getChildren().add(hint);
         return panel;
     }
 
-    // ═ GUARDAR ════════════════════════════════════════════════════════════
+    // ═ GUARDAR ═════════════════════════════════════════════════════════
     private void onAddEntry() {
         if (getTitleFieldValue().isEmpty() || typeCombo.getValue() == null) {
             showAlert("Error", "Por favor completa título y tipo"); return;
@@ -473,8 +545,7 @@ public class Main extends Application {
         String type = typeCombo.getValue();
         Integer chapters = null, season = null, episode = null, comicVolume = null, comicIssue = null;
         String venue = null, author = null, director = null;
-        Boolean isSingleVolume = null, seenInCinema = null;
-        Boolean finished = null, seasonFin = null, seriesFin = null;
+        Boolean isSingleVolume = null, seenInCinema = null, finished = null, seasonFin = null, seriesFin = null;
 
         if (type.contains("Libro")) {
             author = authorTextField != null ? authorTextField.getText().trim() : null;
@@ -485,13 +556,13 @@ public class Main extends Application {
         } else if (type.contains("Serie")) {
             try { season = Integer.parseInt(seasonTextField.getText().trim()); episode = Integer.parseInt(episodeTextField.getText().trim()); }
             catch (NumberFormatException e) { showAlert("Error", "Temporada y capítulo deben ser números"); return; }
-            seasonFin  = seasonFinishedCheck  != null && seasonFinishedCheck.isSelected();
-            seriesFin  = seriesFinishedCheck  != null && seriesFinishedCheck.isSelected();
+            seasonFin = seasonFinishedCheck != null && seasonFinishedCheck.isSelected();
+            seriesFin = seriesFinishedCheck != null && seriesFinishedCheck.isSelected();
         } else if (type.contains("Teatro")) {
             venue = venueTextField != null ? venueTextField.getText().trim() : null;
         } else if (type.contains("Pel")) {
-            director    = directorTextField   != null ? directorTextField.getText().trim()  : null;
-            seenInCinema= seenInCinemaCheckBox!= null && seenInCinemaCheckBox.isSelected();
+            director     = directorTextField    != null ? directorTextField.getText().trim()   : null;
+            seenInCinema = seenInCinemaCheckBox != null && seenInCinemaCheckBox.isSelected();
         } else if (type.contains("Cómic")) {
             isSingleVolume = isSingleVolumeCheckBox != null && isSingleVolumeCheckBox.isSelected();
             if (!Boolean.TRUE.equals(isSingleVolume)) {
@@ -500,7 +571,7 @@ public class Main extends Application {
                 try { comicIssue  = Integer.parseInt(comicIssueTextField.getText().trim()); }
                 catch (NumberFormatException e) { showAlert("Error", "Número de serie debe ser un número"); return; }
             }
-            finished  = finishedCheck  != null && finishedCheck.isSelected();
+            finished  = finishedCheck       != null && finishedCheck.isSelected();
             seriesFin = seriesFinishedCheck != null && seriesFinishedCheck.isSelected();
         }
 
@@ -510,15 +581,13 @@ public class Main extends Application {
         entry.setComicVolume(comicVolume); entry.setComicIssue(comicIssue);
         entry.setDirector(director); entry.setSeenInCinema(seenInCinema);
         entry.setRating(currentRating > 0 ? currentRating : null);
-        entry.setFinished(finished);
-        entry.setSeasonFinished(seasonFin);
-        entry.setSeriesFinished(seriesFin);
+        entry.setFinished(finished); entry.setSeasonFinished(seasonFin); entry.setSeriesFinished(seriesFin);
         db.addEntry(entry);
         clearForm(); loadEntries();
         showAlert("Éxito", "Entrada registrada correctamente ✨");
     }
 
-    // ═ TARJETAS ═══════════════════════════════════════════════════════════
+    // ═ TARJETAS ════════════════════════════════════════════════════════
     private void loadEntries() {
         entriesContainer.getChildren().clear();
         List<Entry> entries = db.getAllEntries();
@@ -531,63 +600,52 @@ public class Main extends Application {
     }
 
     private VBox createEntryCard(Entry entry) {
-        VBox card = new VBox(8);
-        card.setPadding(new Insets(14));
-        card.setStyle(Theme.cardStyle());
-
-        HBox head = new HBox(14);
-        head.setAlignment(Pos.TOP_LEFT);
-        // Portada
+        VBox card = new VBox(8); card.setPadding(new Insets(14)); card.setStyle(Theme.cardStyle());
+        HBox head = new HBox(14); head.setAlignment(Pos.TOP_LEFT);
         if (entry.getCoverPath() != null) {
             try {
-                ImageView img = new ImageView(new Image(new FileInputStream(entry.getCoverPath()), 75, 110, true, true));
+                ImageView img = new ImageView(new Image(
+                    new File(entry.getCoverPath()).toURI().toString(), 75, 110, true, true));
                 img.setStyle("-fx-effect:dropshadow(gaussian,rgba(0,0,0,0.3),6,0,0,2);");
                 head.getChildren().add(img);
             } catch (Exception ex) { head.getChildren().add(placeholderIcon()); }
         } else head.getChildren().add(placeholderIcon());
 
         VBox info = new VBox(5);
-        Label typeL  = new Label(entry.getType());
-        typeL.setStyle("-fx-font-size:11; -fx-text-fill:" + Theme.C_ACCENT2 + "; -fx-font-weight:bold;");
-        Label titleL = new Label(entry.getTitle());
-        titleL.setStyle("-fx-font-size:15; -fx-font-weight:bold; -fx-text-fill:" + Theme.text() + ";");
+        Label typeL  = new Label(entry.getType()); typeL.setStyle("-fx-font-size:11; -fx-text-fill:" + Theme.C_ACCENT2 + "; -fx-font-weight:bold;");
+        Label titleL = new Label(entry.getTitle()); titleL.setStyle("-fx-font-size:15; -fx-font-weight:bold; -fx-text-fill:" + Theme.text() + ";");
         info.getChildren().addAll(typeL, titleL);
-
-        // Chips específicos por tipo
         String t = entry.getType();
         if (t.contains("Libro")) {
-            if (entry.getAuthor()  != null && !entry.getAuthor().isBlank())  info.getChildren().add(chip("✍️ " + entry.getAuthor()));
-            if (entry.getChapters()!= null) info.getChildren().add(chip("📖 Cap. " + entry.getChapters()));
-            if (Boolean.TRUE.equals(entry.getFinished()))                    info.getChildren().add(chipGreen("✅ Libro terminado"));
+            if (entry.getAuthor()!=null && !entry.getAuthor().isBlank()) info.getChildren().add(chip("✍️ " + entry.getAuthor()));
+            if (entry.getChapters()!=null) info.getChildren().add(chip("📖 Cap. " + entry.getChapters()));
+            if (Boolean.TRUE.equals(entry.getFinished()))                info.getChildren().add(chipGreen("✅ Libro terminado"));
         } else if (t.contains("Serie")) {
-            if (entry.getSeason()  != null) info.getChildren().add(chip("T" + entry.getSeason() + " E" + entry.getEpisode()));
-            if (Boolean.TRUE.equals(entry.getSeasonFinished()))              info.getChildren().add(chipGreen("🌟 Fin temporada"));
-            if (Boolean.TRUE.equals(entry.getSeriesFinished()))              info.getChildren().add(chipGreen("🏆 Serie terminada"));
+            if (entry.getSeason()!=null) info.getChildren().add(chip("T" + entry.getSeason() + " E" + entry.getEpisode()));
+            if (Boolean.TRUE.equals(entry.getSeasonFinished()))          info.getChildren().add(chipGreen("🌟 Fin temporada"));
+            if (Boolean.TRUE.equals(entry.getSeriesFinished()))          info.getChildren().add(chipGreen("🏆 Serie terminada"));
         } else if (t.contains("Pel")) {
-            if (entry.getDirector()!= null && !entry.getDirector().isBlank()) info.getChildren().add(chip("🎬 " + entry.getDirector()));
-            if (Boolean.TRUE.equals(entry.getSeenInCinema()))                info.getChildren().add(chip("🎫 Vista en cine"));
-        } else if (t.contains("Teatro") && entry.getVenue() != null) {
+            if (entry.getDirector()!=null && !entry.getDirector().isBlank()) info.getChildren().add(chip("🎬 " + entry.getDirector()));
+            if (Boolean.TRUE.equals(entry.getSeenInCinema()))               info.getChildren().add(chip("🎫 Vista en cine"));
+        } else if (t.contains("Teatro") && entry.getVenue()!=null) {
             info.getChildren().add(chip("🎭 " + entry.getVenue()));
         } else if (t.contains("Cómic")) {
-            if (Boolean.TRUE.equals(entry.getIsSingleVolume()))              info.getChildren().add(chip("Tomo único"));
+            if (Boolean.TRUE.equals(entry.getIsSingleVolume())) info.getChildren().add(chip("Tomo único"));
             else {
                 String ci = "";
                 if (entry.getComicVolume()!=null) ci += "Tomo " + entry.getComicVolume();
                 if (entry.getComicIssue() !=null) ci += (ci.isEmpty()?"":"  ") + "#" + entry.getComicIssue();
                 if (!ci.isEmpty()) info.getChildren().add(chip("📕 " + ci));
             }
-            if (Boolean.TRUE.equals(entry.getFinished()))                    info.getChildren().add(chipGreen("✅ Tomo terminado"));
-            if (Boolean.TRUE.equals(entry.getSeriesFinished()))              info.getChildren().add(chipGreen("🏆 Serie terminada"));
+            if (Boolean.TRUE.equals(entry.getFinished()))       info.getChildren().add(chipGreen("✅ Tomo terminado"));
+            if (Boolean.TRUE.equals(entry.getSeriesFinished())) info.getChildren().add(chipGreen("🏆 Serie terminada"));
         }
         info.getChildren().add(chip("📅 " + entry.getDate()));
-
-        // Estrellas de valoración (solo lectura)
-        if (entry.getRating() != null && entry.getRating() > 0) {
-            HBox stars = new HBox(1);
-            stars.setAlignment(Pos.CENTER_LEFT);
+        if (entry.getRating()!=null && entry.getRating()>0) {
+            HBox stars = new HBox(1); stars.setAlignment(Pos.CENTER_LEFT);
             for (int i = 1; i <= 10; i++) {
-                Label s = new Label(i <= entry.getRating() ? "★" : "☆");
-                s.setStyle("-fx-font-size:13; -fx-text-fill:" + (i <= entry.getRating() ? "#f5c518" : "#cccccc") + ";");
+                Label s = new Label(i<=entry.getRating()?"★":"☆");
+                s.setStyle("-fx-font-size:13; -fx-text-fill:" + (i<=entry.getRating()?"#f5c518":"#cccccc") + ";");
                 stars.getChildren().add(s);
             }
             Label ratingTxt = new Label(" " + entry.getRating() + "/10");
@@ -595,18 +653,13 @@ public class Main extends Application {
             stars.getChildren().add(ratingTxt);
             info.getChildren().add(stars);
         }
-
-        HBox.setHgrow(info, Priority.ALWAYS);
-        head.getChildren().add(info);
-
+        HBox.setHgrow(info, Priority.ALWAYS); head.getChildren().add(info);
         VBox btns = new VBox(6); btns.setAlignment(Pos.TOP_RIGHT);
         Button editBtn = iconBtn("✏️"); editBtn.setOnAction(e -> openEditDialog(entry));
         Button delBtn  = iconBtn("🗑️");  delBtn.setOnAction(e -> { db.deleteEntry(entry.getId()); loadEntries(); });
-        btns.getChildren().addAll(editBtn, delBtn);
-        head.getChildren().add(btns);
+        btns.getChildren().addAll(editBtn, delBtn); head.getChildren().add(btns);
         card.getChildren().add(head);
-
-        if (entry.getDescription() != null && !entry.getDescription().isBlank()) {
+        if (entry.getDescription()!=null && !entry.getDescription().isBlank()) {
             TextArea desc = new TextArea(entry.getDescription());
             desc.setWrapText(true); desc.setPrefRowCount(2); desc.setEditable(false);
             desc.setStyle("-fx-control-inner-background:" + Theme.input() +
@@ -616,7 +669,7 @@ public class Main extends Application {
         return card;
     }
 
-    // ═ EDICIÓN ════════════════════════════════════════════════════════════
+    // ═ EDICIÓN ═════════════════════════════════════════════════════════
     private void openEditDialog(Entry entry) {
         Dialog<ButtonType> dialog = new Dialog<>();
         dialog.setTitle("✏️ Editar Registro");
@@ -626,7 +679,6 @@ public class Main extends Application {
         form.setStyle("-fx-background-color:" + Theme.surface() + ";");
         String fs = Theme.fieldStyle();
         String cbStyle = "-fx-text-fill:" + Theme.text() + "; -fx-font-size:12;";
-
         TextField eTitleF = styledField(entry.getTitle());
         ComboBox<String> eTypeC = new ComboBox<>();
         eTypeC.getItems().addAll("📚 Libro","🎬 Serie","🎥 Película","🎭 Teatro","💭 Cómic");
@@ -634,42 +686,31 @@ public class Main extends Application {
         TextArea eDescA = new TextArea(entry.getDescription()!=null?entry.getDescription():"");
         eDescA.setWrapText(true); eDescA.setPrefRowCount(3); eDescA.setStyle(fs);
         DatePicker eDateP = new DatePicker(entry.getDate()); eDateP.setStyle(fs);
-
-        // Estrellas en el diálogo de edición
         int[] editRating = { entry.getRating()!=null ? entry.getRating() : 0 };
         Label[] editStars = new Label[10];
         HBox editStarsRow = new HBox(3); editStarsRow.setAlignment(Pos.CENTER_LEFT);
         for (int i = 0; i < 10; i++) {
             final int idx = i + 1;
-            Label star = new Label("☆");
-            star.setStyle("-fx-font-size:20; -fx-cursor:hand; -fx-text-fill:#cccccc;");
+            Label star = new Label("☆"); star.setStyle("-fx-font-size:20; -fx-cursor:hand; -fx-text-fill:#cccccc;");
             star.setOnMouseEntered(e -> highlightStars(editStars, idx));
             star.setOnMouseExited(e  -> highlightStars(editStars, editRating[0]));
             star.setOnMouseClicked(e -> { editRating[0] = idx; highlightStars(editStars, editRating[0]); });
-            editStars[i] = star;
-            editStarsRow.getChildren().add(star);
+            editStars[i] = star; editStarsRow.getChildren().add(star);
         }
         highlightStars(editStars, editRating[0]);
-
         TextField eChapF = styledField(entry.getChapters()    !=null?entry.getChapters().toString()   :"");
         TextField eAuthF = styledField(entry.getAuthor()      !=null?entry.getAuthor()                 :"");
         TextField eSeaF  = styledField(entry.getSeason()      !=null?entry.getSeason().toString()      :"");
-        TextField eEpF   = styledField(entry.getEpisode()     !=null?entry.getEpisode().toString()     :"");
+        TextField eEpF   = styledField(entry.getEpisode()     !=null?entry.getEpisode().toString()      :"");
         TextField eVenF  = styledField(entry.getVenue()       !=null?entry.getVenue()                  :"");
         TextField eDirF  = styledField(entry.getDirector()    !=null?entry.getDirector()               :"");
-        CheckBox eCinC   = new CheckBox("🎫 Vista en el cine"); eCinC.setStyle(cbStyle);
-        eCinC.setSelected(Boolean.TRUE.equals(entry.getSeenInCinema()));
-        CheckBox eSingC  = new CheckBox("¿Es tomo único?"); eSingC.setStyle(cbStyle);
-        eSingC.setSelected(Boolean.TRUE.equals(entry.getIsSingleVolume()));
+        CheckBox eCinC   = new CheckBox("🎫 Vista en el cine"); eCinC.setStyle(cbStyle); eCinC.setSelected(Boolean.TRUE.equals(entry.getSeenInCinema()));
+        CheckBox eSingC  = new CheckBox("¿Es tomo único?");       eSingC.setStyle(cbStyle); eSingC.setSelected(Boolean.TRUE.equals(entry.getIsSingleVolume()));
         TextField eVolF  = styledField(entry.getComicVolume() !=null?entry.getComicVolume().toString() :"");
         TextField eIssF  = styledField(entry.getComicIssue()  !=null?entry.getComicIssue().toString()  :"");
-        CheckBox eFinC   = new CheckBox("✅ Terminado"); eFinC.setStyle(cbStyle);
-        eFinC.setSelected(Boolean.TRUE.equals(entry.getFinished()));
-        CheckBox eSeaFinC= new CheckBox("🌟 Fin temporada"); eSeaFinC.setStyle(cbStyle);
-        eSeaFinC.setSelected(Boolean.TRUE.equals(entry.getSeasonFinished()));
-        CheckBox eSerFinC= new CheckBox("🏆 Serie terminada"); eSerFinC.setStyle(cbStyle);
-        eSerFinC.setSelected(Boolean.TRUE.equals(entry.getSeriesFinished()));
-
+        CheckBox eFinC   = new CheckBox("✅ Terminado");       eFinC.setStyle(cbStyle);    eFinC.setSelected(Boolean.TRUE.equals(entry.getFinished()));
+        CheckBox eSeaFinC= new CheckBox("🌟 Fin temporada");  eSeaFinC.setStyle(cbStyle); eSeaFinC.setSelected(Boolean.TRUE.equals(entry.getSeasonFinished()));
+        CheckBox eSerFinC= new CheckBox("🏆 Serie terminada"); eSerFinC.setStyle(cbStyle); eSerFinC.setSelected(Boolean.TRUE.equals(entry.getSeriesFinished()));
         VBox dynEdit = new VBox(8);
         Runnable refreshDyn = () -> {
             dynEdit.getChildren().clear();
@@ -681,8 +722,7 @@ public class Main extends Application {
             else if (ty.contains("Cómic"))  dynEdit.getChildren().addAll(eSingC,styledLabel("Nº tomo:"),eVolF,styledLabel("Nº serie:"),eIssF,new HBox(20,eFinC,eSerFinC));
         };
         refreshDyn.run(); eTypeC.setOnAction(e -> refreshDyn.run());
-        form.getChildren().addAll(
-            styledLabel("Título:"),eTitleF,styledLabel("Tipo:"),eTypeC,
+        form.getChildren().addAll(styledLabel("Título:"),eTitleF,styledLabel("Tipo:"),eTypeC,
             styledLabel("Descripción:"),eDescA,styledLabel("Fecha:"),eDateP,
             styledLabel("⭐ Valoración:"),editStarsRow,dynEdit);
         ScrollPane sp = new ScrollPane(form); sp.setFitToWidth(true);
@@ -708,7 +748,7 @@ public class Main extends Application {
         }
     }
 
-    // ═ BÚSQUEDA ════════════════════════════════════════════════════════════
+    // ═ BÚSQUEDA ═════════════════════════════════════════════════════════
     private void onSearchByTitle() {
         String term = searchTitleField.getText().trim();
         if (term.isEmpty()) { showAlert("Info", "Introduce un término de búsqueda"); return; }
@@ -733,29 +773,12 @@ public class Main extends Application {
         for (Entry e : entries) entriesContainer.getChildren().add(createEntryCard(e));
     }
 
-    // ═ HELPERS ════════════════════════════════════════════════════════════
+    // ═ HELPERS ═════════════════════════════════════════════════════════
     private void updateTitleSuggestions() {
         if (typeCombo==null || titleField==null) return;
         List<String> s = db.getTitleSuggestions(typeCombo.getValue()!=null?typeCombo.getValue():"");
         titleField.setItems(FXCollections.observableArrayList(s));
     }
-
-    private void setupDragAndDrop() {
-        coverDropZone.setOnDragOver(ev  -> { ev.acceptTransferModes(javafx.scene.input.TransferMode.COPY); ev.consume(); });
-        coverDropZone.setOnDragDropped(ev -> {
-            List<File> files = ev.getDragboard().getFiles();
-            if (!files.isEmpty()) loadCoverFile(files.get(0));
-            ev.setDropCompleted(true); ev.consume();
-        });
-    }
-
-    private void loadCoverFile(File f) {
-        try {
-            selectedCoverPath = f.getAbsolutePath();
-            coverPreview.setImage(new Image(new FileInputStream(f), 90, 130, true, true));
-        } catch (Exception ex) { showAlert("Error", "No se pudo cargar la imagen"); }
-    }
-
     private void clearForm() {
         titleField.setValue(null); titleTextField.clear(); descriptionArea.clear();
         typeCombo.setValue("📚 Libro"); datePicker.setValue(LocalDate.now());
