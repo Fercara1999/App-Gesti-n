@@ -10,19 +10,15 @@ public class Entry {
     private LocalDate date;
     private String coverPath;
     private Integer chapters;        // Para libros
+    private String author;           // Para libros
     private Integer season;          // Para series
     private Integer episode;         // Para series
-    private String venue;            // Para teatro (lugar)
-    private Boolean isSingleVolume;  // Para cómic (es tomo único)
-    private Integer comicNumber;     // Para cómic (número de la serie/tomo)
-
-    public Entry(String title, String type, String description, LocalDate date, String coverPath) {
-        this.title = title;
-        this.type = type;
-        this.description = description;
-        this.date = date;
-        this.coverPath = coverPath;
-    }
+    private String venue;            // Para teatro
+    private Boolean isSingleVolume;  // Para cómic
+    private Integer comicVolume;     // Para cómic (número de tomo)
+    private Integer comicIssue;      // Para cómic (número de serie dentro del tomo)
+    private String director;         // Para películas
+    private Boolean seenInCinema;    // Para películas
 
     public Entry(String title, String type, String description, LocalDate date, String coverPath,
                  Integer chapters, Integer season, Integer episode) {
@@ -48,18 +44,24 @@ public class Entry {
     public void setDate(LocalDate date) { this.date = date; }
     public String getCoverPath() { return coverPath; }
     public void setCoverPath(String coverPath) { this.coverPath = coverPath; }
-
     public Integer getChapters() { return chapters; }
     public void setChapters(Integer chapters) { this.chapters = chapters; }
+    public String getAuthor() { return author; }
+    public void setAuthor(String author) { this.author = author; }
     public Integer getSeason() { return season; }
     public void setSeason(Integer season) { this.season = season; }
     public Integer getEpisode() { return episode; }
     public void setEpisode(Integer episode) { this.episode = episode; }
-
     public String getVenue() { return venue; }
     public void setVenue(String venue) { this.venue = venue; }
     public Boolean getIsSingleVolume() { return isSingleVolume; }
     public void setIsSingleVolume(Boolean isSingleVolume) { this.isSingleVolume = isSingleVolume; }
-    public Integer getComicNumber() { return comicNumber; }
-    public void setComicNumber(Integer comicNumber) { this.comicNumber = comicNumber; }
+    public Integer getComicVolume() { return comicVolume; }
+    public void setComicVolume(Integer comicVolume) { this.comicVolume = comicVolume; }
+    public Integer getComicIssue() { return comicIssue; }
+    public void setComicIssue(Integer comicIssue) { this.comicIssue = comicIssue; }
+    public String getDirector() { return director; }
+    public void setDirector(String director) { this.director = director; }
+    public Boolean getSeenInCinema() { return seenInCinema; }
+    public void setSeenInCinema(Boolean seenInCinema) { this.seenInCinema = seenInCinema; }
 }
